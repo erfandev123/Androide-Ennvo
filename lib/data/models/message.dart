@@ -72,8 +72,6 @@ class AppMessage {
   final String? reaction;
   final ReplyPreview? replyTo;
 
-  bool get isMine => false; // set by the view layer, which knows the user
-
   factory AppMessage.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {

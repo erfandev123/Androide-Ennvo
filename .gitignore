@@ -23,11 +23,13 @@ ios/Podfile.lock
 ios/Flutter/ephemeral/
 
 # --- Firebase ---------------------------------------------------------------
-# The Android client configuration is committed on purpose: it only contains
-# public identifiers. The service account keys must never be committed.
+# `google-services.json` only carries public identifiers (the API key, the
+# project id and the app id) and it has to be in the repository for the
+# GitHub Actions build to produce a working APK. The service account keys
+# must never be committed.
 firebase-service-account.json
 *-service-account*.json
-google-services.json
+*-firebase-adminsdk*.json
 
 # --- Local tooling ----------------------------------------------------------
 .idea/

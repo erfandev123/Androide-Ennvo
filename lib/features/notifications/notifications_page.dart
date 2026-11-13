@@ -249,8 +249,7 @@ class _ActivityPane extends StatelessWidget {
                 items: rest,
                 expanded: expanded,
                 onToggle: onToggleExpand,
-                builder: (item, index) =>
-                    _ActivityCard(notification: item as AppNotification),
+                builder: (item, index) => _ActivityCard(notification: item),
               ),
           ],
         );
@@ -314,10 +313,10 @@ class _StackDeck extends StatelessWidget {
     required this.builder,
   });
 
-  final List<Object> items;
+  final List<AppNotification> items;
   final bool expanded;
   final VoidCallback onToggle;
-  final Widget Function(Object item, int index) builder;
+  final Widget Function(AppNotification item, int index) builder;
 
   /// The collapsed offsets, matching the CSS exactly.
   static const List<double> _collapsedOffsets = [0, 14, 27, 38];
@@ -404,10 +403,10 @@ class _StackCard extends StatelessWidget {
     required this.builder,
   });
 
-  final Object item;
+  final AppNotification item;
   final int index;
   final bool expanded;
-  final Widget Function(Object item, int index) builder;
+  final Widget Function(AppNotification item, int index) builder;
 
   @override
   Widget build(BuildContext context) {

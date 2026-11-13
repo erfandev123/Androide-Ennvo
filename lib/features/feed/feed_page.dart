@@ -348,12 +348,3 @@ class _FeedEmpty extends StatelessWidget {
     );
   }
 }
-
-/// A stand-in used by the header search button until the search screen is
-/// filled in.
-class _SearchPlaceholder extends StatelessWidget {
-  const _SearchPlaceholder();
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
-}

@@ -55,6 +55,20 @@ class _CreatePageState extends State<CreatePage> {
     final t = context.tokens;
     final top = MediaQuery.paddingOf(context).top;
 
+    // The advanced settings open as a bottom sheet.
+    if (_showAdvanced) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _showAdvanced = false);
+        showModalBottomSheet<void>(
+          context: context,
+          backgroundColor: Colors.transparent,
+          isScrollControlled: true,
+          builder: (_) => const _AdvancedSettingsSheet(),
+        );
+      });
+    }
+
     return Scaffold(
       backgroundColor: t.background,
       body: Column(
@@ -190,7 +204,6 @@ class _CreatePageState extends State<CreatePage> {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 22),
 
                 // --- the big text background picker ---------------------

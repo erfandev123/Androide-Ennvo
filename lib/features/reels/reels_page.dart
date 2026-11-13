@@ -91,7 +91,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     _dwellTimer?.cancel();
     setState(() => _activeIndex = index);
 
-    final reels = ref.read(_currentReelsProvider);
+    final reels = _currentReels;
     if (index < reels.length) {
       final reel = reels[index];
       // The reel counts as seen after 2500ms of dwell time.
@@ -123,17 +123,26 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
   @override
   Widget build(BuildContext context) {
-    final asyncReels = ref.watch(_currentReelsProvider);
+    // The "Following" tab reads a different stream.
+    final asyncReels = _tab == 'following'
+        ? ref.watch(followingReelsProvider)
+        : ref.watch(reelsProvider);
 
     return asyncReels.when(
       loading: () => const _ReelsLoading(),
       error: (_, __) => const _ReelsEmpty(),
-      data: (reels) {
+      data: (raw) {
+        // Rank promoted reels first, then by the score formula.
+        final reels = ReelsService.rank(raw, _seen);
+        _currentReels = reels;
         if (reels.isEmpty) return const _ReelsEmpty();
         return _buildFeed(context, reels);
       },
     );
   }
+
+  /// The ranked list currently on screen — used by the dwell timer.
+  List<AppPost> _currentReels = const [];
 
   Widget _buildFeed(BuildContext context, List<AppPost> reels) {
     final device = ref.watch(deviceProfileProvider);
@@ -254,13 +263,6 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     );
   }
 }
-
-/// The stream for the currently selected tab.
-final _currentReelsProvider = StreamProvider<List<AppPost>>((ref) {
-  // The tab is read from the widget, so this provider is overridden per
-  // build by [_ReelsPageState] through [ref.watch].
-  return ReelsService.subscribeReels();
-});
 
 // ============================================================================
 //  Top tabs — "Following" / "For You"
