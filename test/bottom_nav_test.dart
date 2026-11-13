@@ -3,6 +3,9 @@
 //
 //  Checks the behaviour the web app's `BottomNav.tsx` specifies: the five
 //  destinations, the badge, the two skins and the tap handling.
+//
+//  The web app's navigation bar shows icons only — the destination names
+//  are semantic labels, so the finders below use them.
 // ============================================================================
 
 import 'package:ennvo/core/nav/page_type.dart';
@@ -33,7 +36,16 @@ Widget _wrap(AppPrefs prefs, Widget child) {
     child: MaterialApp(
       home: Scaffold(
         // The navigation bar is positioned, so it needs a Stack.
-        body: Stack(children: [child]),
+        body: Stack(
+          children: [
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: child,
+            ),
+          ],
+        ),
       ),
     ),
   );
@@ -45,21 +57,18 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         prefs,
-        Scaffold(
-          body: EnnvoBottomNav(
-            currentPage: AppPage.home,
-            onSelect: (_) {},
-          ),
-        ),
+        EnnvoBottomNav(currentPage: AppPage.home, onSelect: (_) {}),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Feed'), findsOneWidget);
-    expect(find.text('New'), findsOneWidget);
-    expect(find.text('Inbox'), findsOneWidget);
-    expect(find.text('Profile'), findsOneWidget);
+    for (final label in ['Home', 'Feed', 'New', 'Inbox', 'Profile']) {
+      expect(
+        find.bySemanticsLabel(label),
+        findsOneWidget,
+        reason: 'the "$label" destination is missing',
+      );
+    }
   });
 
   testWidgets('reports the tapped destination', (tester) async {
@@ -69,18 +78,18 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         prefs,
-        Scaffold(
-          body: EnnvoBottomNav(
-            currentPage: AppPage.home,
-            onSelect: (page) => selected = page,
-          ),
+        EnnvoBottomNav(
+          currentPage: AppPage.home,
+          onSelect: (page) => selected = page,
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Inbox'));
-    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('ennvo-nav-messages')));
+    // The bar supports a double tap, so the single tap is only reported
+    // after the double-tap timeout has passed.
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(selected, AppPage.messages);
   });
@@ -90,13 +99,11 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         prefs,
-        Scaffold(
-          body: EnnvoBottomNav(
-            currentPage: AppPage.home,
-            onSelect: (_) {},
-            messageCount: 3,
-            notificationCount: 2,
-          ),
+        EnnvoBottomNav(
+          currentPage: AppPage.home,
+          onSelect: (_) {},
+          messageCount: 3,
+          notificationCount: 2,
         ),
       ),
     );
@@ -110,18 +117,16 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         prefs,
-        Scaffold(
-          body: EnnvoBottomNav(
-            currentPage: AppPage.home,
-            onSelect: (_) {},
-            isHidden: true,
-          ),
+        EnnvoBottomNav(
+          currentPage: AppPage.home,
+          onSelect: (_) {},
+          isHidden: true,
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Home'), findsNothing);
+    expect(find.bySemanticsLabel('Home'), findsNothing);
   });
 
   testWidgets('the classic skin also renders every destination', (
@@ -131,17 +136,12 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         prefs,
-        Scaffold(
-          body: EnnvoBottomNav(
-            currentPage: AppPage.home,
-            onSelect: (_) {},
-          ),
-        ),
+        EnnvoBottomNav(currentPage: AppPage.home, onSelect: (_) {}),
       ),
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Profile'), findsOneWidget);
+    expect(find.bySemanticsLabel('Home'), findsOneWidget);
+    expect(find.bySemanticsLabel('Profile'), findsOneWidget);
   });
 }

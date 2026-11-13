@@ -18,7 +18,6 @@ import '../../core/nav/nav_controller.dart';
 import '../../core/nav/page_type.dart';
 import '../../core/providers.dart';
 import '../../shared/widgets/bottom_nav.dart';
-import '../auth/auth_page.dart';
 import '../create/create_page.dart';
 import '../edit_profile/edit_profile_page.dart';
 import '../feed/feed_page.dart';
@@ -71,11 +70,18 @@ class _AppShellState extends ConsumerState<AppShell> {
                 ),
               ),
             if (showNav)
-              EnnvoBottomNav(
-                currentPage: nav.currentPage,
-                onSelect: nav.setCurrentPage,
-                messageCount: ref.watch(navBadgesProvider).messages,
-                notificationCount: ref.watch(navBadgesProvider).notifications,
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: EnnvoBottomNav(
+                  currentPage: nav.currentPage,
+                  onSelect: nav.setCurrentPage,
+                  messageCount: ref.watch(navBadgesProvider).messages,
+                  notificationCount: ref
+                      .watch(navBadgesProvider)
+                      .notifications,
+                ),
               ),
           ],
         ),

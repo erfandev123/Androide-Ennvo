@@ -81,7 +81,6 @@ class _ReelCardState extends State<ReelCard> {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
     final post = widget.post;
 
     return Container(

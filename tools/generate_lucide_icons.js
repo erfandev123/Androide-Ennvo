@@ -217,10 +217,6 @@ const dart = `// ===============================================================
 //  Regenerate with:  node tools/generate_lucide_icons.js
 // ============================================================================
 
-import 'package:flutter/material.dart';
-
-import 'svg_icon.dart';
-
 export 'svg_icon.dart';
 
 /// The Lucide icon set used by the Ennvo app.

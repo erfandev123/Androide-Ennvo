@@ -100,91 +100,89 @@ class _EnnvoBottomNavState extends ConsumerState<EnnvoBottomNav> {
     final idleIcon = isDark ? const Color(0x99FFFFFF) : const Color(0xFF64748B);
     final activeIcon = isDark ? Colors.white : const Color(0xFF0284C7);
 
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: safeBottom + 12),
-        child: Center(
-          child: Container(
-            height: AppSizes.bottomNavHeight,
-            constraints: const BoxConstraints(
-              minWidth: AppSizes.bottomNavPillMinWidth,
-              maxWidth: AppSizes.bottomNavPillMaxWidth,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: pillBackground,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: Border.all(color: pillBorder),
-              boxShadow: isDark
-                  ? const [BoxShadow(color: Color(0x73000000), blurRadius: 16)]
-                  : null,
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final itemWidth = constraints.maxWidth / _items.length;
+    // The bar is positioned by its parent, so this widget must not return a
+    // `Positioned` — a `ParentDataWidget` only works as a direct child of a
+    // `Stack`.
+    return Padding(
+      padding: EdgeInsets.only(bottom: safeBottom + 12),
+      child: Center(
+        child: Container(
+          height: AppSizes.bottomNavHeight,
+          constraints: const BoxConstraints(
+            minWidth: AppSizes.bottomNavPillMinWidth,
+            maxWidth: AppSizes.bottomNavPillMaxWidth,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: pillBackground,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            border: Border.all(color: pillBorder),
+            boxShadow: isDark
+                ? const [BoxShadow(color: Color(0x73000000), blurRadius: 16)]
+                : null,
+          ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final itemWidth = constraints.maxWidth / _items.length;
 
-                return TweenAnimationBuilder<double>(
-                  tween: Tween<double>(
-                    begin: activeIndex.toDouble(),
-                    end: activeIndex.toDouble(),
-                  ),
-                  duration: const Duration(milliseconds: 520),
-                  curve: const SpringCurve(EnnvoSprings.navPill),
-                  builder: (context, animatedIndex, _) {
-                    return Stack(
-                      children: [
-                        // --- sliding active highlight (layoutId) ---
-                        Positioned(
-                          left: animatedIndex * itemWidth + 4,
-                          top: 0,
-                          bottom: 0,
-                          width: itemWidth - 8,
-                          child: IgnorePointer(
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: activeBg,
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.pill,
-                                ),
-                                border: Border.all(color: activeBorder),
+              return TweenAnimationBuilder<double>(
+                tween: Tween<double>(
+                  begin: activeIndex.toDouble(),
+                  end: activeIndex.toDouble(),
+                ),
+                duration: const Duration(milliseconds: 520),
+                curve: const SpringCurve(EnnvoSprings.navPill),
+                builder: (context, animatedIndex, _) {
+                  return Stack(
+                    children: [
+                      // --- sliding active highlight (layoutId) ---
+                      Positioned(
+                        left: animatedIndex * itemWidth + 4,
+                        top: 0,
+                        bottom: 0,
+                        width: itemWidth - 8,
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: activeBg,
+                              borderRadius: BorderRadius.circular(
+                                AppRadius.pill,
                               ),
+                              border: Border.all(color: activeBorder),
                             ),
                           ),
                         ),
-                        // --- the five destinations ---
-                        Row(
-                          children: [
-                            for (var i = 0; i < _items.length; i++)
-                              Expanded(
-                                child: _NavItem(
-                                  page: _items[i],
-                                  isActive: _items[i] == widget.currentPage,
-                                  iconSize: AppSizes.navIconSize,
-                                  activeIconColor: activeIcon,
-                                  idleIconColor: idleIcon,
-                                  avatarUrl: _items[i] == AppPage.profile
-                                      ? widget.avatarUrl
-                                      : null,
-                                  badgeCount:
-                                      _items[i] == AppPage.messages
-                                      ? widget.messageCount +
-                                            widget.notificationCount
-                                      : 0,
-                                  onTap: () => _handleTap(_items[i], i),
-                                  onDoubleTap: _handleDoubleTap,
-                                ),
+                      ),
+                      // --- the five destinations ---
+                      Row(
+                        children: [
+                          for (var i = 0; i < _items.length; i++)
+                            Expanded(
+                              child: _NavItem(
+                                page: _items[i],
+                                isActive: _items[i] == widget.currentPage,
+                                iconSize: AppSizes.navIconSize,
+                                activeIconColor: activeIcon,
+                                idleIconColor: idleIcon,
+                                avatarUrl: _items[i] == AppPage.profile
+                                    ? widget.avatarUrl
+                                    : null,
+                                badgeCount:
+                                    _items[i] == AppPage.messages
+                                    ? widget.messageCount +
+                                          widget.notificationCount
+                                    : 0,
+                                onTap: () => _handleTap(_items[i], i),
+                                onDoubleTap: _handleDoubleTap,
                               ),
-                          ],
-                        ),
-                      ],
-                    );
-                  },
-                );
-              },
-            ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
           ),
         ),
       ),
@@ -211,40 +209,36 @@ class _EnnvoBottomNavState extends ConsumerState<EnnvoBottomNav> {
     final activeIcon = isReels || isDark ? Colors.white : const Color(0xFF0EA5E9);
     final dotColor = isDark ? Colors.white : const Color(0xFF0EA5E9);
 
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      child: Container(
-        height: 58 + safeBottom,
-        padding: EdgeInsets.only(bottom: safeBottom),
-        decoration: BoxDecoration(
-          color: background,
-          border: Border(top: BorderSide(color: borderColor)),
-        ),
-        child: Row(
-          children: [
-            for (final page in _items)
-              Expanded(
-                child: _NavItem(
-                  page: page,
-                  isActive: page == widget.currentPage,
-                  iconSize: AppSizes.navIconSizeClassic,
-                  activeIconColor: activeIcon,
-                  idleIconColor: idleIcon,
-                  avatarUrl: page == AppPage.profile ? widget.avatarUrl : null,
-                  badgeCount:
-                      page == AppPage.messages
-                      ? widget.messageCount + widget.notificationCount
-                      : 0,
-                  showDot: true,
-                  dotColor: dotColor,
-                  onTap: () => _handleTap(page, _indexOf(page)),
-                  onDoubleTap: _handleDoubleTap,
-                ),
+    // Positioned by the parent — see the note in the glass skin.
+    return Container(
+      height: 58 + safeBottom,
+      padding: EdgeInsets.only(bottom: safeBottom),
+      decoration: BoxDecoration(
+        color: background,
+        border: Border(top: BorderSide(color: borderColor)),
+      ),
+      child: Row(
+        children: [
+          for (final page in _items)
+            Expanded(
+              child: _NavItem(
+                page: page,
+                isActive: page == widget.currentPage,
+                iconSize: AppSizes.navIconSizeClassic,
+                activeIconColor: activeIcon,
+                idleIconColor: idleIcon,
+                avatarUrl: page == AppPage.profile ? widget.avatarUrl : null,
+                badgeCount:
+                    page == AppPage.messages
+                    ? widget.messageCount + widget.notificationCount
+                    : 0,
+                showDot: true,
+                dotColor: dotColor,
+                onTap: () => _handleTap(page, _indexOf(page)),
+                onDoubleTap: _handleDoubleTap,
               ),
-          ],
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -370,6 +364,7 @@ class _NavItem extends StatelessWidget {
     );
 
     return Semantics(
+      key: ValueKey<String>('ennvo-nav-${page.name}'),
       button: true,
       selected: isActive,
       label: page.navLabel,

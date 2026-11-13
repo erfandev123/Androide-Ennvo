@@ -352,14 +352,6 @@ class _FormCard extends StatelessWidget {
             textInputAction: TextInputAction.next,
           ),
           const SizedBox(height: 18),
-          EnnvoTextField(
-            label: 'Email address',
-            controller: state._emailController,
-            hint: 'you@example.com',
-            keyboardType: TextInputType.emailAddress,
-            textInputAction: TextInputAction.next,
-          ),
-          const SizedBox(height: 18),
         ],
 
         if (isForgot) ...[
@@ -373,9 +365,9 @@ class _FormCard extends StatelessWidget {
           ),
         ] else ...[
           EnnvoTextField(
-            label: isSignUp ? 'Username or email' : 'Username or email',
+            label: 'Email address',
             controller: state._userController,
-            hint: 'yourhandle',
+            hint: 'you@example.com',
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
           ),
@@ -494,20 +486,22 @@ class _InlineLink extends StatelessWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: Text.rich(
-        TextSpan(
-          text: before,
-          style: EnnvoText.body.copyWith(color: const Color(0xFF6B7280)),
-          children: [
-            TextSpan(
-              text: link,
-              style: EnnvoText.body.copyWith(
-                color: const Color(0xFF2563EB),
-                fontWeight: FontWeight.w700,
-              ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            before,
+            style: EnnvoText.body.copyWith(color: const Color(0xFF6B7280)),
+          ),
+          Text(
+            link,
+            style: EnnvoText.body.copyWith(
+              color: const Color(0xFF2563EB),
+              fontWeight: FontWeight.w700,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

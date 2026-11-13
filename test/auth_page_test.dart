@@ -36,6 +36,10 @@ void main() {
     await tester.pumpWidget(_wrap(const AuthPage()));
     await tester.pumpAndSettle();
 
+    // The link sits at the bottom of the form, which is inside a scroll
+    // view — bring it on screen first.
+    await tester.ensureVisible(find.text('Sign Up'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Sign Up'));
     await tester.pumpAndSettle();
 
