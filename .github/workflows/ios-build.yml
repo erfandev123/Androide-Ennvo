@@ -42,7 +42,7 @@ jobs:
           java-version: '17'
 
       - name: Set up the platform projects
-        run: bash tooling/setup_android.sh
+        run: bash tooling/setup_android.sh ios
 
       - name: Fetch dependencies
         run: flutter pub get
