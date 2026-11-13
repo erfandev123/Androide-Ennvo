@@ -46,6 +46,9 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.yaml') }}
           restore-keys: pub-${{ runner.os }}-
 
+      - name: Set up the Android project
+        run: bash tooling/setup_android.sh
+
       - name: Fetch dependencies
         run: flutter pub get
 

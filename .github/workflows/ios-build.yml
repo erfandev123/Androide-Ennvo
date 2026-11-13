@@ -41,6 +41,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up the platform projects
+        run: bash tooling/setup_android.sh
+
       - name: Fetch dependencies
         run: flutter pub get
 
