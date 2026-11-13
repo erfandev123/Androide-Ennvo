@@ -363,12 +363,13 @@ class _ProfileHeader extends StatelessWidget {
                   Container(
                     width: 56,
                     height: 56,
+                    // Flutter 3.50 removed `BoxDecoration.padding`.
+                    padding: const EdgeInsets.all(2),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: const LinearGradient(
                         colors: [Color(0xFF38BDF8), Color(0xFF6366F1)],
                       ),
-                      padding: const EdgeInsets.all(2),
                     ),
                     child: Container(
                       decoration: const BoxDecoration(

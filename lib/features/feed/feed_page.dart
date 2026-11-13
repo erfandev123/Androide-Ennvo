@@ -252,6 +252,9 @@ class _StoryCard extends StatelessWidget {
       children: [
         Expanded(
           child: Container(
+            // Flutter 3.50 removed `BoxDecoration.padding`, so the inset
+            // lives on the container itself.
+            padding: const EdgeInsets.all(2.5),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(
                 wide ? AppRadius.storyLarge : AppRadius.story,
@@ -261,7 +264,6 @@ class _StoryCard extends StatelessWidget {
                 end: Alignment.bottomRight,
                 colors: [Color(0xFF38BDF8), Color(0xFF6366F1), Color(0xFFEC4899)],
               ),
-              padding: const EdgeInsets.all(2.5),
             ),
             child: Container(
               decoration: BoxDecoration(

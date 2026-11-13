@@ -255,8 +255,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
         _liked.add(post.id);
       }
     });
-    HapticFeedback.lightImpact();
-
+    unawaited(HapticFeedback.lightImpact());
     final uid = ref.read(authControllerProvider).user?.uid;
     if (uid == null) return;
     await ReelsService.toggleLike(
