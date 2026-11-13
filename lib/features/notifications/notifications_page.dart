@@ -36,7 +36,8 @@ class NotificationsPage extends ConsumerStatefulWidget {
   ConsumerState<NotificationsPage> createState() => _NotificationsPageState();
 }
 
-class _NotificationsPageState extends ConsumerState<NotificationsPage> {
+class _NotificationsPageState extends ConsumerState<NotificationsPage>
+    with SingleTickerProviderStateMixin {
   /// 0 = Activity, 1 = Followers.
   int _activeTab = 0;
 

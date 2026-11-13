@@ -379,7 +379,7 @@ class _ConversationHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final t = context.tokens;
-    final conversations = ref.watch(conversationsProvider).valueOrNull ?? [];
+    final conversations = ref.watch(conversationsProvider).value ?? const <Conversation>[];
     final conversation = conversations
         .where((c) => c.id == conversationId)
         .firstOrNull;

@@ -163,7 +163,7 @@ class _ProfileHeader extends StatelessWidget {
                 Image.network(
                   bannerUrl,
                   fit: BoxFit.cover,
-                  memCacheWidth: 1080,
+                  cacheWidth: 1080,
                   errorBuilder: (_, __, ___) => const _BannerFallback(),
                 )
               else
@@ -380,7 +380,7 @@ class _ProfileHeader extends StatelessWidget {
                       child: Image.network(
                         highlights[index],
                         fit: BoxFit.cover,
-                        memCacheWidth: 180,
+                        cacheWidth: 180,
                         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                       ),
                     ),
@@ -710,7 +710,7 @@ class _ProfileGrid extends StatelessWidget {
                 : Image.network(
                     post.media.first,
                     fit: BoxFit.cover,
-                    memCacheWidth: 400,
+                    cacheWidth: 400,
                     errorBuilder: (_, __, ___) =>
                         const ColoredBox(color: Color(0xFFF3E8FF)),
                   ),

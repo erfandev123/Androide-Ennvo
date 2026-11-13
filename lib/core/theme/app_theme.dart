@@ -46,7 +46,10 @@ class EnnvoTheme {
       canvasColor: t.background,
       fontFamily: EnnvoFonts.ui,
       textTheme: buildEnnvoTextTheme(t.textPrimary, t.textSecondary),
-      extensions: <ThemeExtension<dynamic>>[t, isDark ? ActTokens.dark : ActTokens.light],
+      extensions: <ThemeExtension<dynamic>>[
+        t,
+        t.isDark ? ActTokens.dark : ActTokens.light,
+      ],
 
       // --- Material's own interaction feedback is disabled -------------
       // The web app hard-disables `:active` styling; a Flutter ripple or

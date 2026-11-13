@@ -112,7 +112,7 @@ class ChatService {
   /// Loads an older page of messages.
   static Future<List<AppMessage>> loadOlderMessages({
     required String conversationId,
-    required DocumentSnapshot<Map<String, dynamic>> before,
+    required DateTime before,
     int limit = 30,
   }) async {
     if (!FirebaseService.isReady) return const [];
@@ -121,8 +121,8 @@ class ChatService {
           .collection('conversations')
           .doc(conversationId)
           .collection('messages')
+          .where('createdAt', isLessThan: Timestamp.fromDate(before))
           .orderBy('createdAt', descending: true)
-          .startAfter(before)
           .limit(limit)
           .get();
       return snapshot.docs
@@ -283,7 +283,10 @@ class ChatService {
       return FirebaseService.database
           .ref('presence/$userId')
           .onValue
-          .map((event) => event.snapshot.value?['isOnline'] == true);
+          .map(
+            (event) =>
+                (event.snapshot.value as Map?)?.['isOnline'] == true,
+          );
     } catch (_) {
       return const Stream.empty();
     }

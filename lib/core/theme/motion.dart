@@ -26,14 +26,30 @@ class SpringCurve extends Curve {
   final SpringDescription description;
   final Tolerance tolerance;
 
+  /// The settling time is cached per spring — computing it walks the
+  /// simulation, which is far too expensive to do on every frame.
+  static final Map<String, double> _settleCache = <String, double>{};
+
+  double get _settleTime => _settleCache.putIfAbsent(
+    '${description.stiffness}/${description.damping}/${description.mass}',
+    () {
+      final simulation = SpringSimulation(description, 0, 1, 0);
+      const step = 1 / 120;
+      var time = 0.0;
+      while (time < 6.0) {
+        time += step;
+        if (simulation.isDone(time)) break;
+      }
+      return time;
+    },
+  );
+
   @override
   double transformInternal(double t) {
     if (t <= 0) return 0;
     if (t >= 1) return 1;
     final simulation = SpringSimulation(description, 0, 1, 0);
-    final duration = simulation.duration;
-    if (duration <= 0) return 1;
-    return simulation.x(t * duration).clamp(-0.5, 1.5);
+    return simulation.x(t * _settleTime).clamp(-0.5, 1.5);
   }
 }
 

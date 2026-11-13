@@ -381,8 +381,9 @@ class _FormCard extends StatelessWidget {
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => state._submit(),
             suffix: IconButton(
-              onPressed: () =>
-                  setState(() => state._obscure = !state._obscure),
+              onPressed: () => state.setState(
+                () => state._obscure = !state._obscure,
+              ),
               icon: Icon(
                 state._obscure
                     ? Icons.visibility_outlined
@@ -401,7 +402,7 @@ class _FormCard extends StatelessWidget {
             children: [
               EnnvoCheckbox(
                 value: state._rememberMe,
-                onChanged: (v) => setState(() => state._rememberMe = v),
+                onChanged: (v) => state.setState(() => state._rememberMe = v),
               ),
               const SizedBox(width: 8),
               GestureDetector(

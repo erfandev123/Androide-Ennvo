@@ -222,7 +222,7 @@ class _StoriesStrip extends StatelessWidget {
           final story = stories[index];
           return SizedBox(
             width: wide ? 110 : 96,
-            child: _StoryCard(story: story, isDark: t.isDark),
+            child: _StoryCard(story: story, isDark: t.isDark, wide: wide),
           );
         },
       ),
@@ -231,10 +231,18 @@ class _StoriesStrip extends StatelessWidget {
 }
 
 class _StoryCard extends StatelessWidget {
-  const _StoryCard({required this.story, required this.isDark});
+  const _StoryCard({
+    required this.story,
+    required this.isDark,
+    required this.wide,
+  });
 
   final Story story;
   final bool isDark;
+
+  /// True on a screen at least 640 logical pixels wide, where the web app
+  /// uses the larger `110 x 162` story card.
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
@@ -276,7 +284,7 @@ class _StoryCard extends StatelessWidget {
                             : Image.network(
                                 story.mediaUrl,
                                 fit: BoxFit.cover,
-                                memCacheWidth: 360,
+                                cacheWidth: 360,
                                 errorBuilder: (_, __, ___) =>
                                     ColoredBox(color: t.surfaceAlt),
                               ),

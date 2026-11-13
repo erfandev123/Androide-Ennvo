@@ -37,7 +37,7 @@ class NavController extends ChangeNotifier {
   /// position and state.
   Set<AppPage> get visitedPages => Set<AppPage>.unmodifiable(_visited);
 
-  bool canGoBack => _stack.length > 1;
+  bool get canGoBack => _stack.length > 1;
 
   /// Pushes a page onto the history stack.
   void pushPage(AppPage page) {

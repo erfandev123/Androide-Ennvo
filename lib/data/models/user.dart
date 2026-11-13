@@ -100,7 +100,7 @@ class AppUser {
   }) {
     final data = doc.data() ?? const <String, dynamic>{};
     return AppUser(
-      uid: (data['uid'] as String?) ?? doc.id ?? fallbackId ?? '',
+      uid: (data['uid'] as String?) ?? doc.id,
       name: (data['name'] as String?) ?? '',
       username: (data['username'] as String?) ?? '',
       email: (data['email'] as String?) ?? '',

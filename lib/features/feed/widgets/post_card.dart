@@ -495,13 +495,13 @@ class _MediaImage extends StatelessWidget {
       fit: BoxFit.cover,
       // Decode at roughly the display size — a full resolution photo in a
       // scrolling list is the fastest way to run out of memory.
-      memCacheWidth: 1080,
+      cacheWidth: 1080,
       errorBuilder: (_, __, ___) {
         if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) {
           return Image.network(
             thumbnailUrl!,
             fit: BoxFit.cover,
-            memCacheWidth: 1080,
+            cacheWidth: 1080,
             errorBuilder: (_, __, ___) =>
                 const ColoredBox(color: Color(0xFF1F2937)),
           );

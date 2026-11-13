@@ -97,10 +97,12 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       // The reel counts as seen after 2500ms of dwell time.
       _dwellTimer = Timer(const Duration(milliseconds: 2500), () {
         if (!mounted) return;
-        _markSeen(reel.id);
+        unawaited(_markSeen(reel.id));
         final uid = ref.read(authControllerProvider).user?.uid;
         if (uid != null) {
-          ReelsService.incrementView(reelId: reel.id, userId: uid);
+          unawaited(
+            ReelsService.incrementView(reelId: reel.id, userId: uid),
+          );
         }
       });
     }

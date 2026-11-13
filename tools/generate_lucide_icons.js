@@ -185,7 +185,6 @@ for (const name of [...used].sort()) {
     body: lines.join('\n'),
   });
 }
-
 const dart = `// ============================================================================
 //  ENNVO — LUCIDE ICONS
 //
@@ -420,7 +419,7 @@ abstract final class LucideIcons {
 ${entries
   .map(
     (e) => `  /// Source: \`lucide-react\` \`${e.source}\`
-  static final LucideIconData ${e.field} = const LucideIconData([
+  static const LucideIconData ${e.field} = LucideIconData([
 ${e.body}
   ]);`,
   )

@@ -175,7 +175,7 @@ class _MediaBubble extends StatelessWidget {
         width: 220,
         height: 220,
         fit: BoxFit.cover,
-        memCacheWidth: 600,
+        cacheWidth: 600,
         errorBuilder: (_, __, ___) => Container(
           width: 220,
           height: 220,

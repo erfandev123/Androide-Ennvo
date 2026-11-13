@@ -103,7 +103,7 @@ class AppPost {
     };
 
     return AppPost(
-      id: (data['id'] as String?) ?? doc.id ?? fallbackId ?? '',
+      id: (data['id'] as String?) ?? doc.id,
       authorId: (data['authorId'] as String?) ?? '',
       authorName: (data['authorName'] as String?) ?? '',
       authorAvatar: (data['authorAvatar'] as String?) ?? '',

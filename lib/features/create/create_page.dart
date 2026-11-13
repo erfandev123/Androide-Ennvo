@@ -19,6 +19,7 @@ import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../shared/icons/lucide_icons.dart';
 import '../../shared/widgets/buttons.dart';
+import '../../shared/widgets/inputs.dart';
 
 class CreatePage extends StatefulWidget {
   const CreatePage({super.key});
@@ -178,27 +179,47 @@ class _CreatePageState extends State<CreatePage> {
                 Row(
                   children: [
                     _ToolButton(
-                      icon: LucideIcons.image,
+                      icon: const LucideIcon(
+                        LucideIcons.image,
+                        size: 20,
+                        strokeWidth: 2.2,
+                      ),
                       label: 'Photo',
                       onTap: () {},
                     ),
                     _ToolButton(
-                      icon: LucideIcons.music,
+                      icon: const LucideIcon(
+                        LucideIcons.music,
+                        size: 20,
+                        strokeWidth: 2.2,
+                      ),
                       label: 'Music',
                       onTap: () {},
                     ),
                     _ToolButton(
-                      icon: LucideIcons.mapPin,
+                      icon: const LucideIcon(
+                        LucideIcons.mapPin,
+                        size: 20,
+                        strokeWidth: 2.2,
+                      ),
                       label: 'Location',
                       onTap: () {},
                     ),
                     _ToolButton(
-                      icon: LucideIcons.userPlus,
+                      icon: const LucideIcon(
+                        LucideIcons.userPlus,
+                        size: 20,
+                        strokeWidth: 2.2,
+                      ),
                       label: 'Tag',
                       onTap: () {},
                     ),
                     _ToolButton(
-                      icon: LucideIcons.sliders,
+                      icon: const LucideIcon(
+                        LucideIcons.sliders,
+                        size: 20,
+                        strokeWidth: 2.2,
+                      ),
                       label: 'Settings',
                       onTap: () => setState(() => _showAdvanced = true),
                     ),
