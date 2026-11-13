@@ -1,0 +1,63 @@
+name: iOS Build
+
+# iOS builds run on a macOS runner, so they work from a Windows machine
+# too. A signed IPA needs an Apple Developer account; without the
+# credentials the workflow still produces an unsigned `.app` bundle that
+# can be signed later or uploaded through EAS.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build iOS
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Fetch dependencies
+        run: flutter pub get
+
+      - name: Build iOS app (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Collect the .app bundle
+        run: |
+          mkdir -p ios-output
+          cp -R build/ios/iphoneos/Runner.app ios-output/Ennvo.app
+          cd ios-output && zip -qry Ennvo-unsigned.ipa Ennvo.app
+          ls -lh
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ennvo-ios
+          path: ios-output/Ennvo-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
