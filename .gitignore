@@ -43,3 +43,7 @@ logs/
 # --- REA / analysis artefacts ------------------------------------------------
 rea/
 *.evidence.json
+
+# The Flutter template widget test references a MyApp class this
+# project does not have.
+test/widget_test.dart
