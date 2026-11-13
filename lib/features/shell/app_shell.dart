@@ -20,6 +20,7 @@ import '../../core/providers.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../auth/auth_page.dart';
 import '../create/create_page.dart';
+import '../edit_profile/edit_profile_page.dart';
 import '../feed/feed_page.dart';
 import '../messages/messages_page.dart';
 import '../notifications/notifications_page.dart';

@@ -26,6 +26,9 @@ if [ ! -d android ]; then
     flutter create --platforms=android,ios --project-name ennvo --org com.erfan --no-pub .
     # `flutter create` may refresh the template files; keep our sources.
     git checkout -- lib pubspec.yaml analysis_options.yaml 2>/dev/null || true
+    # The template widget test references a `MyApp` class this project does
+    # not have.
+    rm -f test/widget_test.dart
 fi
 
 mkdir -p "android/app/src/main/kotlin/com/erfan/ennvoapp"

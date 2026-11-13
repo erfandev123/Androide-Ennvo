@@ -116,10 +116,12 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
   void _goTo(int index) {
     if (!_pageController.hasClients) return;
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 280),
-      curve: EnnvoCurves.iosSpring,
+    unawaited(
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: EnnvoCurves.iosSpring,
+      ),
     );
   }
 

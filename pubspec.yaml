@@ -18,6 +18,10 @@ dependencies:
   cached_network_image: ^4.0.7
   video_player: ^2.14.1
 
+  # Icons — the SVG renderer keeps the original Lucide and custom icon
+  # markup, so the native build draws the same glyphs as the web build.
+  flutter_svg: ^2.4.0
+
   # Firebase — the app reuses the existing Ennvo project.
   firebase_core: ^5.1.0
   firebase_auth: ^7.0.1

@@ -54,7 +54,6 @@ class _ProfilePageState extends ConsumerState<ProfilePage>
     final auth = ref.watch(authControllerProvider);
     final user = auth.user;
     final posts = ref.watch(userPostsProvider);
-
     return Scaffold(
       // The profile page stays light in dark mode — the web app's
       // `.profile-page-root` does the same.

@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 

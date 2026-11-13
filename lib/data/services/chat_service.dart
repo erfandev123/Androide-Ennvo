@@ -283,10 +283,10 @@ class ChatService {
       return FirebaseService.database
           .ref('presence/$userId')
           .onValue
-          .map(
-            (event) =>
-                (event.snapshot.value as Map?)?.['isOnline'] == true,
-          );
+          .map((event) {
+            final value = event.snapshot.value;
+            return value is Map && value['isOnline'] == true;
+          });
     } catch (_) {
       return const Stream.empty();
     }
