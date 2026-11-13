@@ -19,7 +19,11 @@
 //  `ProcessInfo.processInfo.physicalMemory` on iOS).
 // ============================================================================
 
-import 'dart:io';
+// The web build cannot use `dart:io`, so the platform lookup is redirected
+// to a small stub there.
+import 'dart:io'
+    if (dart.library.js_interop) 'platform_stub.dart'
+    as io;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -107,7 +111,7 @@ class DeviceTierService {
   /// throws and falls back to a conservative profile.
   static Future<DeviceProfile> detect({String? userOverride}) async {
     int ramBytes = 0;
-    int cores = Platform.numberOfProcessors;
+    int cores = io.Platform.numberOfProcessors;
     bool lowRam = false;
 
     try {
@@ -171,7 +175,7 @@ class DeviceTierService {
 /// This asks the OS to keep the CPU at full clocks and reduce thermal
 /// throttling — useful for a scrolling video feed.
 Future<void> requestSustainedPerformance() async {
-  if (!Platform.isAndroid) return;
+  if (!io.Platform.isAndroid) return;
   try {
     await const MethodChannel('ennvo/device').invokeMethod(
       'requestSustainedPerformance',

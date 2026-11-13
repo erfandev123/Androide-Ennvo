@@ -187,14 +187,35 @@ The project targets **Flutter 3.50.0 / Dart 3.14**, `minSdk 24`,
 
 ## Porting status
 
-| Screen | State |
-|---|---|
-| Design system, theme, motion, icons | **done** |
-| Navigation shell and bottom navigation | **done** |
-| Auth (sign in, sign up, password reset) | **done** |
-| Reels — the vertical video feed | **done** |
-| Feed, messages, notifications, create, profile, settings, search | scaffolded, being filled in one screen at a time |
+| Screen | Web source | State |
+|---|---|---|
+| Design system, theme, motion, icons | `src/index.css` | **done** |
+| Navigation shell and bottom navigation | `App.tsx`, `BottomNav.tsx` | **done** |
+| Auth — sign in, sign up, password reset | `pages/Auth.tsx` | **done** |
+| Reels — the vertical video feed | `pages/Reels.tsx`, `components/ReelItem.tsx` | **done** |
+| Feed — stories strip and posts | `pages/Home.tsx`, `components/PostItem.tsx` | **done** |
+| Messages — conversations and chat bubbles | `pages/Messages.tsx` | **done** |
+| Activity — the card stack accordion | `pages/Notifications.tsx` | **done** |
+| Profile — banner, stats, highlights, tabs | `pages/Profile.tsx` | **done** |
+| Create — the composer and the big text backgrounds | `pages/Create.tsx` | **done** |
+| Settings — the two column layout | `pages/Settings.tsx` | **done** |
+| Edit profile | `pages/EditProfile.tsx` | **done** |
+| Search | `pages/SearchPage.tsx` | **done** |
 
 Every screen is ported from the corresponding file in the web app's
 `src/pages/` directory, with the same tokens, the same copy and the same
-interaction rules.
+interaction rules. `docs/PORTING.md` records the file by file mapping and
+lists what is still to come — the story viewer, the media cropper, the
+sticker studio, the reel camera and the call UI.
+
+---
+
+## Tooling
+
+| Tool | What it does |
+|---|---|
+| `tools/generate_lucide_icons.js` | regenerates the 145 Lucide icons from the `lucide-react` package the web app uses |
+| `tooling/setup_android.sh` | generates the platform projects and applies the Android customisations — used by the CI |
+| `tooling/MainActivity.kt` | the native shell: the device tier channel and edge to edge drawing |
+| `tooling/google-services.json` | the public Firebase client configuration |
+

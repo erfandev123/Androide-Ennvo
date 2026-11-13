@@ -205,66 +205,73 @@ class _ShowcasePanel extends StatelessWidget {
         ),
       ),
       child: Stack(
+        fit: StackFit.expand,
         children: [
           // Soft radial highlight behind the logo.
-          Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(-0.3, -0.4),
-                  radius: 0.9,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.18),
-                    Colors.white.withValues(alpha: 0),
-                  ],
-                ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment(-0.3, -0.4),
+                radius: 0.9,
+                colors: [Color(0x2EFFFFFF), Color(0x00FFFFFF)],
               ),
             ),
           ),
+
+          // The showcase block scales down instead of overflowing, which
+          // keeps a short hero safe on a small phone.
           Padding(
             padding: EdgeInsets.symmetric(
               horizontal: 40,
               vertical: showFooter ? 48 : 28,
             ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const EnnvoAppLogo(size: 76),
-                const SizedBox(height: 20),
-                Text(
-                  'Welcome to',
-                  style: EnnvoText.body.copyWith(
-                    color: Colors.white.withValues(alpha: 0.85),
-                    fontSize: 13.5,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                const Text('Ennvo', style: EnnvoText.brandHero),
-                const SizedBox(height: 14),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 320),
-                  child: Text(
-                    'Connect, share moments, and explore short videos with people around the world.',
-                    style: EnnvoText.body.copyWith(
-                      color: Colors.white.withValues(alpha: 0.82),
-                      fontSize: 13.5,
-                      height: 1.5,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: 340,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const EnnvoAppLogo(size: 76),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Welcome to',
+                      style: EnnvoText.body.copyWith(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 13.5,
+                      ),
                     ),
-                  ),
-                ),
-                if (showFooter) ...[
-                  const Spacer(),
-                  Text(
-                    'CONNECT  ·  CREATE  ·  EXPLORE',
-                    style: EnnvoText.overlineXs.copyWith(
-                      color: Colors.white.withValues(alpha: 0.75),
+                    const SizedBox(height: 2),
+                    const Text('Ennvo', style: EnnvoText.brandHero),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Connect, share moments, and explore short videos with people around the world.',
+                      style: EnnvoText.body.copyWith(
+                        color: Colors.white.withValues(alpha: 0.82),
+                        fontSize: 13.5,
+                        height: 1.5,
+                      ),
                     ),
-                  ),
-                ],
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
+
+          // The footer sits on the bottom edge of the panel.
+          if (showFooter)
+            Positioned(
+              left: 40,
+              bottom: 48,
+              child: Text(
+                'CONNECT  ·  CREATE  ·  EXPLORE',
+                style: EnnvoText.overlineXs.copyWith(
+                  color: Colors.white.withValues(alpha: 0.75),
+                ),
+              ),
+            ),
         ],
       ),
     );

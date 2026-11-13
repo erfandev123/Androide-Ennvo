@@ -30,7 +30,12 @@ Widget _wrap(AppPrefs prefs, Widget child) {
         profileForTesting(ramBytes: 8 * 1024 * 1024 * 1024, cores: 8),
       ),
     ],
-    child: MaterialApp(home: child),
+    child: MaterialApp(
+      home: Scaffold(
+        // The navigation bar is positioned, so it needs a Stack.
+        body: Stack(children: [child]),
+      ),
+    ),
   );
 }
 
