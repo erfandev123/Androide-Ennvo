@@ -21,6 +21,7 @@ import 'package:ennvo/core/theme/app_theme.dart';
 import 'package:ennvo/features/auth/auth_page.dart';
 import 'package:ennvo/features/messages/messages_page.dart';
 import 'package:ennvo/features/reels/reels_page.dart';
+import 'package:ennvo/features/shell/app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -152,6 +153,23 @@ void main() {
     await expectLater(
       find.byType(MessagesPage),
       matchesGoldenFile('goldens/messages.png'),
+    );
+  });
+
+  testWidgets('the app shell on the reels feed', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs();
+    await tester.pumpWidget(_harness(prefs, const AppShell()));
+    // Let the welcome card time out so the feed itself is visible.
+    await tester.pump(const Duration(milliseconds: 5000));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(AppShell),
+      matchesGoldenFile('goldens/shell_reels.png'),
     );
   });
 }

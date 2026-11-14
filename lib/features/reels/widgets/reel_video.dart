@@ -3,14 +3,16 @@
 //
 //  The video surface of a reel.
 //
-//  The playback window follows the prototype:
-//    • outside the window the controller does not exist at all and only
-//      the poster is painted — the decoder is released completely
-//    • one step away the video is prepared but stays paused
-//    • the active reel plays
+//  Playback strategy — this is what makes the feed feel like TikTok:
 //
-//  That keeps the number of live decoders at two on a cheap phone instead
-//  of one per item in the feed.
+//    • the controller is created as soon as the reel enters the preload
+//      window, not when it becomes active, so the network round trip and
+//      the first frame decode happen while the user is still watching
+//    • the active reel plays, the prepared neighbour stays paused
+//    • a reel that leaves the window is released completely, decoder and all
+//    • the poster is shown until the first frame is ready, then the video
+//      cross fades in over it
+//    • pausing resets the position, so a reel always starts from the top
 // ============================================================================
 
 import 'dart:async';
@@ -30,7 +32,7 @@ class ReelVideo extends StatefulWidget {
     this.muted = true,
     this.onProgress,
     this.onReady,
-    this.onEnded,
+    this.onFailed,
   });
 
   /// A remote video.
@@ -50,7 +52,7 @@ class ReelVideo extends StatefulWidget {
   final bool muted;
   final ValueChanged<double>? onProgress;
   final VoidCallback? onReady;
-  final VoidCallback? onEnded;
+  final VoidCallback? onFailed;
 
   @override
   State<ReelVideo> createState() => _ReelVideoState();
@@ -60,6 +62,7 @@ class _ReelVideoState extends State<ReelVideo> {
   VideoPlayerController? _controller;
   bool _ready = false;
   bool _failed = false;
+  bool _firstFramePainted = false;
   Timer? _playDebounce;
 
   @override
@@ -76,7 +79,7 @@ class _ReelVideoState extends State<ReelVideo> {
       if (widget.isNear) {
         _prepare();
       } else {
-        // Outside the window: release the decoder entirely.
+        // Outside the window the decoder is released completely.
         _release();
       }
       return;
@@ -109,6 +112,7 @@ class _ReelVideoState extends State<ReelVideo> {
     final controller = _controller;
     _controller = null;
     _ready = false;
+    _firstFramePainted = false;
     if (controller != null) {
       controller.removeListener(_onTick);
       controller.dispose();
@@ -120,13 +124,18 @@ class _ReelVideoState extends State<ReelVideo> {
     final asset = widget.assetPath;
     if (url == null && asset == null) {
       if (mounted) setState(() => _failed = true);
+      widget.onFailed?.call();
       return;
     }
 
     try {
       final controller = asset != null
           ? VideoPlayerController.asset(asset)
-          : VideoPlayerController.networkUrl(Uri.parse(url!));
+          : VideoPlayerController.networkUrl(
+              Uri.parse(url!),
+              videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+              formatHint: VideoFormat.hls,
+            );
 
       _controller = controller;
       await controller.initialize();
@@ -145,6 +154,7 @@ class _ReelVideoState extends State<ReelVideo> {
       _syncPlayback();
     } catch (_) {
       if (mounted) setState(() => _failed = true);
+      widget.onFailed?.call();
     }
   }
 
@@ -152,11 +162,19 @@ class _ReelVideoState extends State<ReelVideo> {
     final controller = _controller;
     if (controller == null || !mounted) return;
 
+    if (!_firstFramePainted &&
+        controller.value.isInitialized &&
+        controller.value.position > Duration.zero) {
+      _firstFramePainted = true;
+      if (mounted) setState(() {});
+    }
+
     final duration = controller.value.duration;
     if (duration.inMilliseconds > 0) {
-      final progress =
-          controller.value.position.inMilliseconds / duration.inMilliseconds;
-      widget.onProgress?.call(progress.clamp(0.0, 1.0));
+      widget.onProgress?.call(
+        (controller.value.position.inMilliseconds / duration.inMilliseconds)
+            .clamp(0.0, 1.0),
+      );
     }
   }
 
@@ -167,13 +185,15 @@ class _ReelVideoState extends State<ReelVideo> {
     // A short debounce stops a burst of page changes from thrashing the
     // decoder — that is what causes the stutter on a low end phone.
     _playDebounce?.cancel();
-    _playDebounce = Timer(const Duration(milliseconds: 120), () async {
+    _playDebounce = Timer(const Duration(milliseconds: 90), () async {
       if (!mounted) return;
       final current = _controller;
       if (current == null) return;
       if (widget.isActive) {
         await current.play();
       } else {
+        // Stopping is exact: the position is rewound so the reel always
+        // starts from the top when it comes back.
         await current.pause();
         await current.seekTo(Duration.zero);
       }
@@ -192,9 +212,10 @@ class _ReelVideoState extends State<ReelVideo> {
     final controller = _controller;
 
     if (_failed || controller == null || !_ready) {
-      return _Poster();
+      return _poster();
     }
 
+    // The video fills the screen edge to edge, the way TikTok does.
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -206,14 +227,20 @@ class _ReelVideoState extends State<ReelVideo> {
             child: VideoPlayer(controller),
           ),
         ),
+        // The poster cross fades out once the first frame is on screen.
+        AnimatedOpacity(
+          opacity: _firstFramePainted ? 0 : 1,
+          duration: const Duration(milliseconds: 180),
+          child: _poster(),
+        ),
       ],
     );
   }
 
-  Widget _Poster() {
-    // The poster always sits on a soft gradient, so the reel never shows a
-    // flat black rectangle while the video is being prepared.
-    Widget placeholder = const DecoratedBox(
+  Widget _poster() {
+    // A soft gradient underneath, so the reel never shows a flat black
+    // rectangle while the video is being prepared.
+    final placeholder = const DecoratedBox(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,

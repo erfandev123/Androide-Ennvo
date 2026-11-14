@@ -81,6 +81,9 @@ class _AppShellState extends ConsumerState<AppShell> {
                   notificationCount: ref
                       .watch(navBadgesProvider)
                       .notifications,
+                  // The reels feed is a black screen, so the bar goes black
+                  // as well and the two read as one surface.
+                  solidDark: nav.currentPage == AppPage.home,
                 ),
               ),
           ],

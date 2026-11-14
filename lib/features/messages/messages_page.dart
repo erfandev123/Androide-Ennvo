@@ -83,7 +83,42 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
 
     final list = _ConversationList(
       conversations: conversations,
-      onOpen: (id) => setState(() => _activeConversationId = id),
+      onOpen: (id) {
+        // The chat opens as its own screen, pushed over the list, the way
+        // every messenger does it — the navigation is never shared with the
+        // conversation list.
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => _ChatScreen(
+              conversationId: id,
+              messages: _messages[id] ?? const [],
+              replyTo: _replyTo,
+              onReply: (message) => setState(() => _replyTo = message),
+              onCancelReply: () => setState(() => _replyTo = null),
+              onSend: (text, replyTo) async {
+                final message = AppMessage(
+                  id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+                  senderId: 'me',
+                  type: MessageType.text,
+                  content: text,
+                  createdAt: DateTime.now(),
+                  status: MessageStatus.seen,
+                  replyTo: replyTo == null
+                      ? null
+                      : ReplyPreview(
+                          id: replyTo.id,
+                          text: replyTo.content,
+                          authorName: 'them',
+                        ),
+                );
+                setState(() {
+                  _messages[id] = [...?_messages[id], message];
+                });
+              },
+            ),
+          ),
+        );
+      },
     );
 
     final chat = active == null
@@ -185,6 +220,45 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
       updatedAt: DateTime.now().subtract(const Duration(days: 1)),
     ),
   ];
+}
+
+// ============================================================================
+//  The chat screen — its own route, pushed over the conversation list
+// ============================================================================
+class _ChatScreen extends StatelessWidget {
+  const _ChatScreen({
+    required this.conversationId,
+    required this.messages,
+    required this.replyTo,
+    required this.onReply,
+    required this.onCancelReply,
+    required this.onSend,
+  });
+
+  final String conversationId;
+  final List<AppMessage> messages;
+  final AppMessage? replyTo;
+  final ValueChanged<AppMessage> onReply;
+  final VoidCallback onCancelReply;
+  final Future<void> Function(String text, AppMessage? replyTo) onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+
+    return Scaffold(
+      backgroundColor: t.chatBackground,
+      body: _ChatPane(
+        conversationId: conversationId,
+        messages: messages,
+        replyTo: replyTo,
+        onBack: () => Navigator.of(context).maybePop(),
+        onReply: onReply,
+        onCancelReply: onCancelReply,
+        onSend: onSend,
+      ),
+    );
+  }
 }
 
 // ============================================================================
@@ -596,19 +670,18 @@ class _ChatPane extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
               child: Row(
                 children: [
-                  if (MediaQuery.sizeOf(context).width < 768)
-                    IconButton(
-                      onPressed: onBack,
-                      icon: LucideIcon(
-                        LucideIcons.arrowLeft,
-                        size: 20,
-                        strokeWidth: 2.4,
-                        color: t.isDark
-                            ? const Color(0xFFF5F5F5)
-                            : const Color(0xFF1F2937),
-                      ),
-                      tooltip: 'Back',
+                  IconButton(
+                    onPressed: onBack,
+                    icon: LucideIcon(
+                      LucideIcons.arrowLeft,
+                      size: 20,
+                      strokeWidth: 2.4,
+                      color: t.isDark
+                          ? const Color(0xFFF5F5F5)
+                          : const Color(0xFF1F2937),
                     ),
+                    tooltip: 'Back',
+                  ),
                   Container(
                     width: 40,
                     height: 40,

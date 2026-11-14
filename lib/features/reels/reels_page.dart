@@ -34,6 +34,7 @@ import 'demo_reels.dart';
 import 'models/reel_comment.dart';
 import 'widgets/comments_sheet.dart';
 import 'widgets/reel_card.dart';
+import 'widgets/reel_preloader.dart';
 import 'widgets/share_sheet.dart';
 
 class ReelsPage extends ConsumerStatefulWidget {
@@ -55,6 +56,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
   final Set<String> _liked = <String>{};
   final Set<String> _saved = <String>{};
+  final Set<String> _reposted = <String>{};
   final Set<String> _following = <String>{};
   final Set<String> _seen = <String>{};
 
@@ -104,6 +106,16 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     if (index >= reels.length) return;
     final reel = reels[index];
 
+    // Warm the connections to the videos that are about to be shown, so the
+    // swipe lands on an already warm path.
+    final upcoming = <String?>[];
+    for (var i = index + 1; i <= index + 3 && i < reels.length; i++) {
+      final next = reels[i];
+      final nextDemo = demoReelFor(next.id);
+      upcoming.add(nextDemo == null ? _videoUrlOf(next) : null);
+    }
+    ReelPreloader.warmAll(upcoming, count: 2);
+
     // The reel counts as seen after 2500ms of dwell time.
     _dwellTimer = Timer(const Duration(milliseconds: 2500), () {
       if (!mounted) return;
@@ -112,6 +124,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       }
     });
   }
+
+  /// The video URL of a post.
+  static String? _videoUrlOf(AppPost post) =>
+      post.media.isNotEmpty ? post.media.first : null;
 
   @override
   Widget build(BuildContext context) {
@@ -161,13 +177,15 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                   isNear: (index - _activeIndex).abs() <= 1,
                   isLiked: _liked.contains(post.id),
                   isSaved: _saved.contains(post.id),
+                  isReposted: _reposted.contains(post.id),
                   isFollowing: _following.contains(post.authorId),
                   likesCount:
                       (post.likesCount) + (_liked.contains(post.id) ? 1 : 0),
                   commentsCount: post.commentsCount,
                   favouritesCount:
                       post.favoritesCount + (_saved.contains(post.id) ? 1 : 0),
-                  sharesCount: post.repostsCount,
+                  sharesCount:
+                      post.repostsCount + (_reposted.contains(post.id) ? 1 : 0),
                   muted: _muted,
                   onProgress: (value) {
                     if (index != _activeIndex || !mounted) return;
@@ -183,6 +201,12 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                     HapticFeedback.lightImpact();
                     setState(() {
                       if (!_saved.remove(post.id)) _saved.add(post.id);
+                    });
+                  },
+                  onToggleRepost: () {
+                    HapticFeedback.lightImpact();
+                    setState(() {
+                      if (!_reposted.remove(post.id)) _reposted.add(post.id);
                     });
                   },
                   onToggleFollow: () {
@@ -237,7 +261,8 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
           Positioned(
             left: 16,
             right: 16,
-            bottom: MediaQuery.paddingOf(context).bottom + 11,
+            // Just above the black navigation bar.
+            bottom: MediaQuery.paddingOf(context).bottom + 60,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(2),
               child: SizedBox(
@@ -383,7 +408,6 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       barrierColor: Colors.black.withValues(alpha: 0.4),
       builder: (_) => ReelShareSheet(
         targets: targets,
-        shareCount: post.repostsCount,
         onSend: (selected) async {},
         onRepost: () {},
         onSave: () {},
