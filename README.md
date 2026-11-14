@@ -164,7 +164,21 @@ Signing the APK needs four repository secrets:
 | `KEY_ALIAS` | key alias |
 | `KEY_PASSWORD` | key password |
 
-Without them the workflow still runs and produces a debug-key APK.
+Without them the workflow still runs and produces a debug-key APK, which
+installs on any device.
+
+To sign a local build with your own key:
+
+```bash
+# 1. put the keystore at android/app/upload-keystore.jks
+# 2. create android/key.properties
+#      storeFile=upload-keystore.jks
+#      storePassword=...
+#      keyAlias=...
+#      keyPassword=...
+# 3. switch the release build over to it
+node tooling/enable_release_signing.js
+```
 
 A tagged build (`git push origin v1.0.0`) also publishes a GitHub release
 with the three ABI APKs.
@@ -235,6 +249,8 @@ sticker studio, the reel camera and the call UI.
 |---|---|
 | `tools/generate_lucide_icons.js` | regenerates the 145 Lucide icons from the `lucide-react` package the web app uses |
 | `tooling/setup_android.sh` | generates the platform projects and applies the Android customisations — used by the CI |
+| `tooling/patch_gradle.js` | the application id, the Google Services plugin and the release lint task |
+| `tooling/enable_release_signing.js` | switches the release build over to an upload key |
 | `tooling/MainActivity.kt` | the native shell: the device tier channel and edge to edge drawing |
 | `tooling/google-services.json` | the public Firebase client configuration |
 

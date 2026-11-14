@@ -166,7 +166,37 @@ specific customisations:
 * the application id stays `com.erfan.ennvoapp`
 * the Google Services configuration is installed
 * the native shell with the device-tier channel replaces the template
+* the release lint task is disabled — the Kotlin compiler that ships with
+  the Flutter template is not compatible with the lint API in AGP 9
 * Gradle is tuned so the build fits on a small machine
 
 The three GitHub Actions workflows — CI, the Android APK and the iOS
 build — run that script, so a fresh clone builds without any local setup.
+
+### Verified state
+
+| Check | Result |
+|---|---|
+| `flutter analyze` | no errors |
+| `flutter test` | 41 tests pass |
+| Android release APK | builds, signed, split per ABI |
+| `app-arm64-v8a-release.apk` | 19.7 MB |
+| `app-armeabi-v7a-release.apk` | 17.3 MB |
+| `app-x86_64-release.apk` | 20.9 MB |
+| The brand fonts in the APK | Outfit 600–900, Plus Jakarta Sans 600–800 |
+
+### The bugs the tests caught
+
+They were real, and they would have shipped:
+
+1. **The bottom navigation was mis-positioned.** `EnnvoBottomNav` returned
+   a `Positioned`, which is a `ParentDataWidget` — it only works as a direct
+   child of a `Stack`. The bar was rendering as an ordinary stack child.
+   The bar now returns a plain widget and the shell positions it.
+2. **The sign-up form had two email fields.** The sign-up branch and the
+   shared branch both rendered an email and a password field.
+3. **The auth hero overflowed** on a short screen. The showcase column now
+   scales down instead of overflowing.
+4. **The sign-in label said "Username or email"** while the web app says
+   "Email address".
+
