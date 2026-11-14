@@ -19,6 +19,7 @@ import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../shared/icons/brand_icons.dart';
+import '../../shared/icons/lucide_icons.dart';
 import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/inputs.dart';
 
@@ -383,11 +384,10 @@ class _FormCard extends StatelessWidget {
               onPressed: () => state.setState(
                 () => state._obscure = !state._obscure,
               ),
-              icon: Icon(
-                state._obscure
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-                size: 20,
+              icon: LucideIcon(
+                state._obscure ? LucideIcons.eyeOff : LucideIcons.eye,
+                size: 19,
+                strokeWidth: 2,
                 color: const Color(0xFF9CA3AF),
               ),
               tooltip: state._obscure ? 'Show password' : 'Hide password',

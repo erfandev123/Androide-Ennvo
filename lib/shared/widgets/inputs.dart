@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../icons/lucide_icons.dart';
 
 class EnnvoTextField extends StatefulWidget {
   const EnnvoTextField({
@@ -145,7 +146,12 @@ class EnnvoCheckbox extends StatelessWidget {
               ),
             ),
             child: value
-                ? const Icon(Icons.check_rounded, size: 14, color: Colors.white)
+                ? const LucideIcon(
+                    LucideIcons.check,
+                    size: 13,
+                    strokeWidth: 2.6,
+                    color: Colors.white,
+                  )
                 : null,
           ),
         ),

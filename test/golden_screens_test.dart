@@ -17,6 +17,7 @@ import 'dart:io';
 import 'package:ennvo/core/perf/device_tier.dart';
 import 'package:ennvo/core/providers.dart';
 import 'package:ennvo/core/storage/app_prefs.dart';
+import 'package:ennvo/core/theme/app_theme.dart';
 import 'package:ennvo/features/auth/auth_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -73,8 +74,9 @@ Widget _harness(AppPrefs prefs, Widget child, {bool dark = false}) {
     ],
     child: MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.light(),
-      darkTheme: ThemeData.dark(),
+      // The real app theme, so the goldens show the shipped appearance.
+      theme: EnnvoTheme.light(),
+      darkTheme: EnnvoTheme.dark(),
       themeMode: dark ? ThemeMode.dark : ThemeMode.light,
       home: child,
     ),

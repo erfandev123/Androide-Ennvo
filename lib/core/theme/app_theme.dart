@@ -17,6 +17,11 @@ import 'typography.dart';
 class EnnvoTheme {
   const EnnvoTheme._();
 
+  /// The border colour of the pill inputs — the web app uses a visible
+  /// light grey outline.
+  static Color _inputBorder(EnnvoTokens t) =>
+      t.isDark ? const Color(0x33FFFFFF) : const Color(0xFFD6DEE8);
+
   static ThemeData light() => _build(EnnvoTokens.light, Brightness.light);
 
   static ThemeData dark() => _build(EnnvoTokens.dark, Brightness.dark);
@@ -98,13 +103,14 @@ class EnnvoTheme {
         ),
         hintStyle: EnnvoText.body.copyWith(color: t.textTertiary),
         labelStyle: EnnvoText.label.copyWith(color: t.textSecondary),
+        // A fully rounded outline — the web app's pill shaped inputs.
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
-          borderSide: BorderSide(color: t.borderStrong),
+          borderSide: BorderSide(color: _inputBorder(t)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
-          borderSide: BorderSide(color: t.borderStrong),
+          borderSide: BorderSide(color: _inputBorder(t)),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
