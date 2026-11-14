@@ -218,6 +218,38 @@ font.
 
 ---
 
+## The reels screen
+
+The home screen is a full screen vertical video feed. It follows the reels
+prototype and the Ennvo web app:
+
+| Behaviour | Detail |
+|---|---|
+| Playback window | the active reel plays, the neighbour is prepared and paused, everything else is released — at most two live decoders |
+| Double tap | a heart bursts out of the tap point, rises 64px, scales 0.4 → 1.1 and fades over 900ms; the reel is liked |
+| Single tap | plays or pauses, after a 280ms window so the two gestures never fight |
+| Progress bar | tracks the active reel along the bottom edge |
+| Tabs | "Following" and "For you" with a sliding underline |
+| Action rail | like, comment, favourite, share and the spinning vinyl record |
+| Author block | the avatar with a gradient ring, the morphing follow button, the name, the verified mark, the role, the caption with a "See more" toggle, the tags and the scrolling song title |
+| Comments | a bottom sheet with nested replies, expandable reply threads, a two tap delete, an emoji tray and a composer |
+| Share | a bottom sheet with a multi-select people grid, the quick actions and the privacy switch |
+| Seen tracking | a reel counts as seen after 2500ms; the list is capped at 250 and feeds the ranking |
+
+## The messages screen
+
+| Behaviour | Detail |
+|---|---|
+| Conversation list | the stories row, the conversations with their unread badge, the pinned and muted marks |
+| Grouping | two messages belong to the same group when the sender matches and they are less than 60 seconds apart |
+| Tail corners | the last bubble of a group squares its tail to 6px, the base radius is 24px |
+| Bubble types | text, emoji only, image, video, album, reel, sticker, voice note, call and system |
+| Reply preview | inside the bubble with a 2px accent border |
+| Swipe to reply | 0.44 damping, 56px of travel, commits at 24px |
+| Read receipt | a fixed 15px slot below the list so the chat never shifts |
+| Composer | a floating pill that lifts with the keyboard, an attach menu that rotates 45°, a growing text field, and a mic that swaps into the send button |
+| Wallpaper | the chat stays light even in dark mode, exactly like the web app |
+
 ## Porting status
 
 | Screen | Web source | State |
