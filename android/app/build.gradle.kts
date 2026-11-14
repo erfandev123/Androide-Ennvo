@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("com.google.gms.google-services")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -15,53 +16,30 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // The application id stays `com.erfan.ennvoapp`: the app keeps the
+        // existing Firebase registration, the push tokens and the Play Store
+        // listing of the Ennvo app.
         applicationId = "com.erfan.ennvoapp"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
-        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
-        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
-        // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
 
     lint {
-
+        // The Kotlin compiler that ships with the Flutter template is not
+        // compatible with the lint API in AGP 9: the release lint task fails
+        // inside the Firebase plugins with a NoSuchMethodError.
         checkReleaseBuilds = false
-
         abortOnError = false
-
     }
-    signingConfigs {
-        create("release") {
-            val keyPropertiesFile = rootProject.file("key.properties")
-            if (keyPropertiesFile.exists()) {
-                val keyProperties = java.util.Properties()
-                keyProperties.load(keyPropertiesFile.inputStream())
-                storeFile = keyProperties.getProperty("storeFile")?.let { file(it) }
-                storePassword = keyProperties.getProperty("storePassword")
-                keyAlias = keyProperties.getProperty("keyAlias")
-                keyPassword = keyProperties.getProperty("keyPassword")
-            }
-        }
-    }
-
-
-
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = if (rootProject.file("key.properties").exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            // Signed with the debug key by default. Run
+            // `node tooling/enable_release_signing.js` to switch the release
+            // build over to an upload key.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }

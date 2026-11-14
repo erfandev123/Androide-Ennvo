@@ -102,18 +102,22 @@ if [ "$TARGET" != "ios" ]; then
 
     # -------------------------------------------------------------------------
     #  Gradle tuning, so the build fits on a small machine.
+    #
+    #  The values are replaced rather than appended, so the file never ends
+    #  up with the same key twice.
     # -------------------------------------------------------------------------
+    echo "==> Tuning Gradle"
+    perl -pi -e 's/^org\.gradle\.jvmargs=.*$/org.gradle.jvmargs=-Xmx3072M -XX:MaxMetaspaceSize=768M -Dfile.encoding=UTF-8/' \
+        android/gradle.properties
     if ! grep -q "Ennvo: tuned for small build machines" android/gradle.properties; then
         cat >> android/gradle.properties <<'GRADLE'
 
 # --- Ennvo: tuned for small build machines -------------------------------
-org.gradle.jvmargs=-Xmx3072M -XX:MaxMetaspaceSize=768M -Dfile.encoding=UTF-8
 org.gradle.workers.max=2
 org.gradle.parallel=true
 org.gradle.caching=true
 kotlin.compiler.execution.strategy=in-process
 kotlin.daemon.jvmargs=-Xmx1024M
-android.useAndroidX=true
 android.enableJetifier=false
 android.nonTransitiveRClass=true
 GRADLE

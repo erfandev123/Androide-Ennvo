@@ -185,6 +185,25 @@ The project targets **Flutter 3.50.0 / Dart 3.14**, `minSdk 24`,
 
 ---
 
+## Visual verification
+
+The native screens are rendered by a golden test, so the build can be
+compared against the production web build pixel by pixel.
+
+```bash
+flutter test --update-goldens
+```
+
+The renders land in `test/goldens/`. The comparison is skipped on CI — the
+goldens are rasterised on Windows and the runners rasterise differently —
+but the rendering still runs there, so a layout regression is still caught.
+
+The font assets are loaded into the test, so the goldens show the real
+Outfit and Plus Jakarta Sans typography rather than the test placeholder
+font.
+
+---
+
 ## Porting status
 
 | Screen | Web source | State |
