@@ -18,20 +18,22 @@ concurrency:
 jobs:
   build:
     name: Build iOS
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # The runner's default Xcode is used on purpose: pinning an older
-      # Xcode breaks the Swift Package Manager resolution of the current
-      # Firebase iOS SDK, which needs a newer tools version.
-      #
-      # Swift Package Manager is switched off entirely and the project falls
-      # back to CocoaPods, which resolves the same pods without the tools
-      # version constraint.
+      # The newest Xcode on the runner is used on purpose: the current
+      # Firebase iOS SDK is written against Swift 6.2, so it needs the
+      # `isolation:` argument that only the newer compiler understands.
+      - name: Select the newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
