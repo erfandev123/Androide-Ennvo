@@ -61,9 +61,9 @@ jobs:
 
       - name: Collect the .app bundle
         run: |
-          mkdir -p ios-output
-          cp -R build/ios/iphoneos/Runner.app ios-output/Ennvo.app
-          cd ios-output && zip -qry Ennvo-unsigned.ipa Ennvo.app
+          mkdir -p ios-output/Payload
+          cp -R build/ios/iphoneos/Runner.app ios-output/Payload/Ennvo.app
+          cd ios-output && zip -qry Ennvo-unsigned.ipa Payload
           ls -lh
 
       - name: Upload iOS artifact

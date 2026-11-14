@@ -145,5 +145,19 @@ if [ "$TARGET" = "ios" ]; then
         git checkout -- lib pubspec.yaml analysis_options.yaml 2>/dev/null || true
         rm -f test/widget_test.dart
     fi
+
+    # The bundle identifier stays `com.erfan.ennvoapp`, the same as the
+    # Android application id and the Capacitor build.
+    echo "==> Setting the iOS bundle identifier to $APPLICATION_ID"
+    for file in ios/Runner.xcodeproj/project.pbxproj; do
+        [ -f "$file" ] || continue
+        perl -pi -e 's/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = com.erfan.ennvoapp;/g' "$file"
+    done
+
+    # The display name.
+    if [ -f ios/Runner/Info.plist ]; then
+        perl -0pi -e 's|<key>CFBundleDisplayName</key>\s*<string>[^<]*</string>|<key>CFBundleDisplayName</key>\n\t<string>Ennvo</string>|' \
+            ios/Runner/Info.plist
+    fi
     echo "==> iOS project ready"
 fi
