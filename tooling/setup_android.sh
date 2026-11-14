@@ -104,6 +104,27 @@ if [ "$TARGET" != "ios" ]; then
     fi
 
     # -------------------------------------------------------------------------
+    #  The release lint task.
+    #
+    #  The Kotlin compiler that ships with the Flutter template is not
+    #  compatible with the lint API in AGP 9, and the `lintVitalAnalyzeRelease`
+    #  task fails inside the Firebase plugins with a `NoSuchMethodError`.
+    #  The lint check is not useful for a release build anyway.
+    # -------------------------------------------------------------------------
+    echo "==> Disabling the release lint task"
+    if [ -f android/app/build.gradle.kts ]; then
+        if ! grep -q "checkReleaseBuilds = false" android/app/build.gradle.kts; then
+            perl -0pi -e 's/(\n(\s*)buildTypes \{)/\n$2lint {\n$2    checkReleaseBuilds = false\n$2    abortOnError = false\n$2}\n$1/' \
+                android/app/build.gradle.kts
+        fi
+    elif [ -f android/app/build.gradle ]; then
+        if ! grep -q "checkReleaseBuilds false" android/app/build.gradle; then
+            perl -0pi -e 's/(\n(\s*)buildTypes \{)/\n$2lint {\n$2    checkReleaseBuilds false\n$2    abortOnError false\n$2}\n$1/' \
+                android/app/build.gradle
+        fi
+    fi
+
+    # -------------------------------------------------------------------------
     #  Gradle tuning, so the build fits on a small machine.
     # -------------------------------------------------------------------------
     if ! grep -q "Ennvo: tuned for small build machines" android/gradle.properties; then

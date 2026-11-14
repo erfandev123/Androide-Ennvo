@@ -25,8 +25,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      # The runner's default Xcode is used on purpose: pinning an older
+      # Xcode breaks the Swift Package Manager resolution of the current
+      # Firebase iOS SDK, which needs a newer tools version.
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
