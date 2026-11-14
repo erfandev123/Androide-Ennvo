@@ -69,7 +69,7 @@ class StoryService {
     List<String> followingIds = const [],
     int limit = 40,
   }) {
-    if (!FirebaseService.isReady) return const Stream.empty();
+    if (!FirebaseService.isReady) return Stream.value(const <Story>[]);
 
     return FirebaseService.firestore
         .collection('stories')

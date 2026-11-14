@@ -1,161 +1,379 @@
 // ============================================================================
 //  ENNVO — CHAT BUBBLE
 //
-//  Ported from the bubble logic in `src/pages/Messages.tsx`.
+//  Every message shape the chat supports, ported from
+//  `src/pages/Messages.tsx`.
 //
 //  Geometry:
-//    • every bubble is `rounded-3xl` (24px)
-//    • the last bubble of a group gets a squared tail corner:
-//      `rounded-tr-md` for mine, `rounded-tl-md` for theirs
-//    • mine  → `bg-sky-500`, white text
-//    • theirs → `bg-[#F2F4F7]` in light mode, `bg-[#27272A]` in dark
+//    • the base radius is 24px (`rounded-3xl`)
+//    • the tail corner of the last bubble in a group is squared to 6px
+//    • two messages belong to the same group when the sender matches and
+//      they are less than 60 seconds apart
 //
-//  The read receipt lives in a *fixed height slot below the list*, not
-//  inside the bubble, exactly as the web app does — otherwise the list
-//  jumps when the last message changes.
+//  The bubble supports a text body, an image, a video, an album, a reel, a
+//  sticker, a voice note, a call summary and a document — plus a reply
+//  preview, a reaction badge and the swipe-to-reply gesture.
 // ============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/theme/motion.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/message.dart';
+import '../../../shared/icons/lucide_icons.dart';
 
-class ChatBubble extends StatelessWidget {
+class ChatBubble extends StatefulWidget {
   const ChatBubble({
     super.key,
     required this.message,
     required this.isMine,
+    required this.isFirstInGroup,
     required this.isLastInGroup,
-    this.showReply,
+    this.replyPreview,
+    this.onReply,
+    this.onLongPress,
+    this.showAvatar = true,
+    this.avatarUrl = '',
   });
 
   final AppMessage message;
   final bool isMine;
+  final bool isFirstInGroup;
   final bool isLastInGroup;
 
   /// The message this one replies to.
-  final AppMessage? showReply;
+  final AppMessage? replyPreview;
+
+  final VoidCallback? onReply;
+  final VoidCallback? onLongPress;
+  final bool showAvatar;
+  final String avatarUrl;
+
+  @override
+  State<ChatBubble> createState() => _ChatBubbleState();
+}
+
+class _ChatBubbleState extends State<ChatBubble> {
+  // --- the swipe-to-reply gesture -------------------------------------
+  double _drag = 0;
+  bool _dragging = false;
 
   @override
   Widget build(BuildContext context) {
+    final message = widget.message;
     final t = context.tokens;
-    final chatText = isMine ? t.chatTextMine : t.chatTextTheirs;
-    final chatBackground = isMine ? t.chatBubbleMine : t.chatBubbleTheirs;
 
-    // The tail corner is squared on the last bubble of a group.
-    final radius = BorderRadius.only(
-      topLeft: Radius.circular(
-        !isMine && isLastInGroup ? AppRadius.md : AppRadius.xxl,
+    // An emoji-only message has no bubble behind it.
+    final isEmojiOnly = _isEmojiOnly(message.content);
+
+    final radius = _radiusFor(
+      isMine: widget.isMine,
+      isFirst: widget.isFirstInGroup,
+      isLast: widget.isLastInGroup,
+    );
+
+    final bubble = Container(
+      decoration: BoxDecoration(
+        gradient: widget.isMine && !isEmojiOnly
+            ? const LinearGradient(
+                colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+              )
+            : null,
+        color: widget.isMine
+            ? null
+            : (isEmojiOnly ? Colors.transparent : t.chatBubbleTheirs),
+        borderRadius: radius,
       ),
-      topRight: Radius.circular(
-        isMine && isLastInGroup ? AppRadius.md : AppRadius.xxl,
-      ),
-      bottomLeft: Radius.circular(AppRadius.xxl),
-      bottomRight: Radius.circular(AppRadius.xxl),
+      child: _body(context, isEmojiOnly),
     );
 
     return Padding(
       padding: EdgeInsets.only(
-        left: isMine ? 56 : 12,
-        right: isMine ? 12 : 56,
-        top: 2,
-        bottom: isLastInGroup ? 8 : 2,
+        top: widget.isFirstInGroup ? 8 : 1,
+        bottom: widget.isLastInGroup ? 8 : 1,
       ),
-      child: Column(
-        crossAxisAlignment: isMine
-            ? CrossAxisAlignment.end
-            : CrossAxisAlignment.start,
+      child: Row(
+        mainAxisAlignment: widget.isMine
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (showReply != null)
-            _ReplyPreview(
-              reply: showReply!,
-              isMine: isMine,
-              textColor: t.textSecondary,
+          if (!widget.isMine)
+            SizedBox(
+              width: 28,
+              child: widget.isLastInGroup && widget.showAvatar
+                  ? CircleAvatar(
+                      radius: 14,
+                      backgroundImage: widget.avatarUrl.isEmpty
+                          ? null
+                          : NetworkImage(widget.avatarUrl),
+                      child: widget.avatarUrl.isEmpty
+                          ? Icon(
+                              Icons.person,
+                              size: 14,
+                              color: t.textTertiary,
+                            )
+                          : null,
+                    )
+                  : null,
             ),
-          Container(
-            decoration: BoxDecoration(
-              color: chatBackground,
-              borderRadius: radius,
-            ),
-            child: _Content(
-              message: message,
-              textColor: chatText,
-              isMine: isMine,
+          if (!widget.isMine) const SizedBox(width: 6),
+          Flexible(
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                GestureDetector(
+                  onHorizontalDragStart: (_) => setState(() => _dragging = true),
+                  onHorizontalDragUpdate: (details) {
+                    // Only a rightward swipe means "reply".
+                    if (details.delta.dx <= 0) return;
+                    setState(() {
+                      _drag = (_drag + details.delta.dx * 0.44).clamp(0, 56);
+                    });
+                  },
+                  onHorizontalDragEnd: (_) {
+                    final committed = _drag > 24;
+                    setState(() => _dragging = false);
+                    if (committed) {
+                      HapticFeedback.lightImpact();
+                      widget.onReply?.call();
+                    }
+                    setState(() => _drag = 0);
+                  },
+                  onLongPress: widget.onLongPress,
+                  child: AnimatedSlide(
+                    duration: _dragging
+                        ? Duration.zero
+                        : const Duration(milliseconds: 220),
+                    curve: const Cubic(0.2, 0.9, 0.3, 1),
+                    offset: Offset(_drag / 400, 0),
+                    child: bubble,
+                  ),
+                ),
+                // The reply indicator that fades in with the drag.
+                if (!widget.isMine)
+                  Positioned(
+                    left: -32,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: Opacity(
+                        opacity: ((_drag - 8) / 22).clamp(0.0, 1.0),
+                        child: Transform.scale(
+                          scale: 0.7 + 0.3 * ((_drag - 8) / 22).clamp(0.0, 1.0),
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.95),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: const Color(0x80D8B4FE),
+                              ),
+                            ),
+                            child: const LucideIcon(
+                              LucideIcons.reply,
+                              size: 14,
+                              strokeWidth: 2.4,
+                              color: Color(0xFFA855F7),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _body(BuildContext context, bool isEmojiOnly) {
+    final message = widget.message;
+    final t = context.tokens;
+    final textColor = widget.isMine
+        ? t.chatTextMine
+        : t.chatTextTheirs;
+
+    switch (message.type) {
+      case MessageType.system:
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            decoration: BoxDecoration(
+              color: t.isDark ? const Color(0xFF171717) : const Color(0xFFF5F5F5),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              border: Border.all(color: t.border),
+            ),
+            child: Text(
+              message.content,
+              textAlign: TextAlign.center,
+              style: EnnvoText.caption.copyWith(
+                color: t.isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252),
+                fontSize: 11.5,
+              ),
+            ),
+          ),
+        );
+
+      case MessageType.text:
+        if (isEmojiOnly) {
+          final count = _emojiCount(message.content);
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Text(
+              message.content,
+              style: TextStyle(
+                fontSize: count == 1 ? 48 : 36,
+                height: 1.15,
+                shadows: const [
+                  Shadow(color: Color(0x1F000000), blurRadius: 2),
+                ],
+              ),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (widget.replyPreview != null)
+                _ReplyPreview(
+                  reply: widget.replyPreview!,
+                  isMine: widget.isMine,
+                ),
+              Text(
+                message.content,
+                style: EnnvoText.body.copyWith(
+                  color: textColor,
+                  fontSize: 15,
+                  height: 1.375,
+                ),
+              ),
+            ],
+          ),
+        );
+
+      case MessageType.image:
+      case MessageType.album:
+        return _MediaBubble(message: message, isMine: widget.isMine);
+
+      case MessageType.video:
+        return _VideoBubble(message: message);
+
+      case MessageType.reel:
+        return _ReelBubble(message: message);
+
+      case MessageType.sticker:
+        return SizedBox(
+          width: 180,
+          height: 180,
+          child: message.stickerUrl == null || message.stickerUrl!.isEmpty
+              ? const SizedBox.shrink()
+              : Image.network(
+                  message.stickerUrl!,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+        );
+
+      case MessageType.voice:
+        return _VoiceBubble(message: message, isMine: widget.isMine);
+    }
+  }
+
+  /// The border radius matrix of the web app.
+  static BorderRadius _radiusFor({
+    required bool isMine,
+    required bool isFirst,
+    required bool isLast,
+  }) {
+    const r = Radius.circular(AppRadius.xxl);
+    const tail = Radius.circular(AppRadius.md);
+
+    if (isMine) {
+      return BorderRadius.only(
+        topLeft: r,
+        topRight: isLast ? tail : r,
+        bottomLeft: r,
+        bottomRight: isLast ? r : tail,
+      );
+    }
+    return BorderRadius.only(
+      topLeft: isLast ? tail : r,
+      topRight: r,
+      bottomLeft: isLast ? r : tail,
+      bottomRight: r,
+    );
+  }
+
+  static bool _isEmojiOnly(String text) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+    final count = trimmed.runes.length;
+    if (count > 3) return false;
+    final emoji = RegExp(
+      r'^[\p{Extended_Pictographic}\p{Emoji_Presentation}\s]+$',
+      unicode: true,
+    );
+    return emoji.hasMatch(trimmed);
+  }
+
+  static int _emojiCount(String text) => text.trim().runes.length;
 }
 
-/// The body of the bubble, switched on the message type.
-class _Content extends StatelessWidget {
-  const _Content({
-    required this.message,
-    required this.textColor,
-    required this.isMine,
-  });
+// ============================================================================
+//  The reply preview inside a bubble
+// ============================================================================
+class _ReplyPreview extends StatelessWidget {
+  const _ReplyPreview({required this.reply, required this.isMine});
 
-  final AppMessage message;
-  final Color textColor;
+  final AppMessage reply;
   final bool isMine;
 
   @override
   Widget build(BuildContext context) {
-    switch (message.type) {
-      case MessageType.image:
-      case MessageType.album:
-        return _MediaBubble(message: message, isMine: isMine);
-      case MessageType.video:
-      case MessageType.reel:
-        return _MediaBubble(message: message, isMine: isMine);
-      case MessageType.sticker:
-        return Padding(
-          padding: const EdgeInsets.all(6),
-          child: SizedBox(
-            width: 120,
-            height: 120,
-            child: message.stickerUrl == null || message.stickerUrl!.isEmpty
-                ? const SizedBox.shrink()
-                : Image.network(
-                    message.stickerUrl!,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isMine
+            ? Colors.black.withValues(alpha: 0.15)
+            : const Color(0xCCF3F4F6),
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border(
+          left: BorderSide(
+            color: isMine
+                ? Colors.white.withValues(alpha: 0.7)
+                : const Color(0xFFA855F7),
+            width: 2,
           ),
-        );
-      case MessageType.voice:
-        return _VoiceBubble(message: message, textColor: textColor);
-      case MessageType.system:
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Text(
-            message.content,
-            textAlign: TextAlign.center,
-            style: EnnvoText.caption.copyWith(
-              color: const Color(0xFF9CA3AF),
-              fontSize: 12,
-            ),
-          ),
-        );
-      case MessageType.text:
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          child: Text(
-            message.content,
-            style: EnnvoText.body.copyWith(
-              color: textColor,
-              fontSize: 14.5,
-            ),
-          ),
-        );
-    }
+        ),
+      ),
+      child: Text(
+        reply.content.isEmpty ? 'Attachment' : reply.content,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: EnnvoText.caption.copyWith(
+          color: isMine ? Colors.white.withValues(alpha: 0.95) : const Color(0xFF1F2937),
+          fontSize: 11,
+          fontStyle: FontStyle.italic,
+        ),
+      ),
+    );
   }
 }
 
+// ============================================================================
+//  The image bubble
+// ============================================================================
 class _MediaBubble extends StatelessWidget {
   const _MediaBubble({required this.message, required this.isMine});
 
@@ -166,269 +384,266 @@ class _MediaBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = message.mediaUrl ??
         (message.mediaUrls.isNotEmpty ? message.mediaUrls.first : '');
-    if (url.isEmpty) return const SizedBox(width: 200, height: 200);
+    if (url.isEmpty) return const SizedBox.shrink();
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(AppRadius.xxl),
-      child: Image.network(
-        url,
-        width: 220,
-        height: 220,
-        fit: BoxFit.cover,
-        cacheWidth: 600,
-        errorBuilder: (_, __, ___) => Container(
-          width: 220,
-          height: 220,
-          color: const Color(0xFF1F2937),
-          child: const Icon(Icons.broken_image_outlined, color: Colors.white24),
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: Image.network(
+            url,
+            width: 240,
+            height: 300,
+            fit: BoxFit.cover,
+            cacheWidth: 640,
+            errorBuilder: (_, __, ___) => Container(
+              width: 240,
+              height: 300,
+              color: const Color(0x14000000),
+            ),
+          ),
+        ),
+        Positioned(
+          right: 6,
+          bottom: 6,
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              shape: BoxShape.circle,
+            ),
+            child: const LucideIcon(
+              LucideIcons.download,
+              size: 12,
+              strokeWidth: 2.2,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
+//  The video bubble
+// ============================================================================
+class _VideoBubble extends StatelessWidget {
+  const _VideoBubble({required this.message});
+
+  final AppMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          child: Container(
+            width: 220,
+            height: 260,
+            color: Colors.black,
+          ),
+        ),
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.9),
+            shape: BoxShape.circle,
+          ),
+          alignment: Alignment.center,
+          child: const LucideIcon(
+            LucideIcons.play,
+            size: 20,
+            strokeWidth: 2,
+            color: Color(0xFF111827),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
+//  The reel bubble
+// ============================================================================
+class _ReelBubble extends StatelessWidget {
+  const _ReelBubble({required this.message});
+
+  final AppMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 128,
+      height: 165,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Container(
+          color: const Color(0xFF171717),
+          alignment: Alignment.center,
+          child: Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.95),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: const LucideIcon(
+              LucideIcons.play,
+              size: 14,
+              strokeWidth: 2,
+              color: Color(0xFF111827),
+            ),
+          ),
         ),
       ),
     );
   }
 }
 
-class _VoiceBubble extends StatelessWidget {
-  const _VoiceBubble({required this.message, required this.textColor});
+// ============================================================================
+//  The voice note bubble
+// ============================================================================
+class _VoiceBubble extends StatefulWidget {
+  const _VoiceBubble({required this.message, required this.isMine});
 
   final AppMessage message;
-  final Color textColor;
+  final bool isMine;
+
+  @override
+  State<_VoiceBubble> createState() => _VoiceBubbleState();
+}
+
+class _VoiceBubbleState extends State<_VoiceBubble> {
+  bool _playing = false;
+  double _progress = 0;
+
+  static const List<double> _heights = [
+    28, 48, 36, 60, 44, 76, 52, 90, 64, 100, 72, 88, 56, 76, 48, 84,
+    60, 92, 52, 76, 44, 68, 32, 80, 40, 72, 36, 64,
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final seconds = message.voiceDuration ?? 0;
+    final t = context.tokens;
+    final filled = widget.isMine
+        ? Colors.white
+        : (t.isDark ? const Color(0xFF38BDF8) : const Color(0xFF0EA5E9));
+    final empty = widget.isMine
+        ? Colors.white.withValues(alpha: 0.35)
+        : (t.isDark ? const Color(0xFF404040) : const Color(0xFFD4D4D8));
+    final seconds = widget.message.voiceDuration ?? 0;
 
-    return Padding(
+    return Container(
+      constraints: const BoxConstraints(minWidth: 210, maxWidth: 285),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: widget.isMine
+            ? const LinearGradient(
+                colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+              )
+            : null,
+        color: widget.isMine
+            ? null
+            : (t.isDark ? const Color(0xFF1F242D) : const Color(0xFFF5F5F5)),
+        borderRadius: BorderRadius.circular(22),
+        border: widget.isMine
+            ? null
+            : Border.all(color: t.border),
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: textColor.withValues(alpha: 0.15),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _playing = !_playing),
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.isMine
+                    ? Colors.white
+                    : (t.isDark ? const Color(0xFF0EA5E9) : const Color(0xFF0EA5E9)),
+              ),
+              alignment: Alignment.center,
+              child: LucideIcon(
+                _playing ? LucideIcons.pause : LucideIcons.play,
+                size: 16,
+                strokeWidth: 2,
+                color: widget.isMine ? const Color(0xFF2563EB) : Colors.white,
+              ),
             ),
-            child: Icon(Icons.play_arrow_rounded, size: 20, color: textColor),
           ),
           const SizedBox(width: 10),
-          // A simple waveform placeholder.
-          SizedBox(
-            width: 90,
-            height: 24,
-            child: CustomPaint(painter: _WaveformPainter(color: textColor)),
+          // The waveform.
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (details) {
+              setState(() {
+                _progress = (details.localPosition.dx / 200).clamp(0.0, 1.0);
+              });
+            },
+            child: SizedBox(
+              width: 120,
+              height: 28,
+              child: Stack(
+                alignment: Alignment.centerLeft,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      for (var i = 0; i < _heights.length; i++)
+                        Container(
+                          width: 2.5,
+                          height: (_heights[i] * 0.24)
+                              .clamp(4.0, 28.0),
+                          decoration: BoxDecoration(
+                            color: i / _heights.length <= _progress
+                                ? filled
+                                : empty,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                    ],
+                  ),
+                  // The scrub pip.
+                  Positioned(
+                    left: (_progress * 118).clamp(0.0, 118.0),
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: filled,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: filled.withValues(alpha: 0.6),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
           const SizedBox(width: 8),
           Text(
-            '${seconds}s',
-            style: EnnvoText.caption.copyWith(color: textColor),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WaveformPainter extends CustomPainter {
-  const _WaveformPainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color.withValues(alpha: 0.55)
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round;
-
-    const bars = 18;
-    final barWidth = size.width / bars;
-    for (var i = 0; i < bars; i++) {
-      // A deterministic pseudo waveform.
-      final t = (i % 6) / 6.0;
-      final height = 6 + (t * (size.height - 6));
-      final x = barWidth * i + barWidth / 2;
-      canvas.drawLine(
-        Offset(x, size.height - height),
-        Offset(x, size.height),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_WaveformPainter oldDelegate) => oldDelegate.color != color;
-}
-
-/// The reply preview shown above the bubble.
-class _ReplyPreview extends StatelessWidget {
-  const _ReplyPreview({
-    required this.reply,
-    required this.isMine,
-    required this.textColor,
-  });
-
-  final AppMessage reply;
-  final bool isMine;
-  final Color textColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: t.isDark ? const Color(0xFF1C1C22) : const Color(0xFFF2F4F7),
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        border: Border(
-          left: BorderSide(
-            color: isMine ? Colors.white70 : t.accent,
-            width: 3,
-          ),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            reply.senderId.isEmpty ? 'Message' : 'Reply',
+            '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
             style: EnnvoText.tiny.copyWith(
-              color: isMine ? Colors.white70 : t.accent,
-              fontSize: 11,
+              color: widget.isMine
+                  ? Colors.white.withValues(alpha: 0.8)
+                  : t.textSecondary,
+              fontSize: 10,
             ),
-          ),
-          Text(
-            reply.content,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: EnnvoText.tiny.copyWith(color: textColor, fontSize: 11.5),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ============================================================================
-//  The typing indicator — three bouncing dots
-// ============================================================================
-class TypingIndicator extends StatefulWidget {
-  const TypingIndicator({super.key, this.color});
-
-  final Color? color;
-
-  @override
-  State<TypingIndicator> createState() => _TypingIndicatorState();
-}
-
-class _TypingIndicatorState extends State<TypingIndicator>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1250),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
-    final dotColor = widget.color ?? const Color(0xFF9CA3AF);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: t.chatBubbleTheirs,
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
-      ),
-      child: AnimatedBuilder(
-        animation: _controller,
-        builder: (context, _) {
-          return Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var i = 0; i < 3; i++)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: _Dot(
-                    controller: _controller,
-                    index: i,
-                    color: dotColor,
-                  ),
-                ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot({
-    required this.controller,
-    required this.index,
-    required this.color,
-  });
-
-  final AnimationController controller;
-  final int index;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    // The web app uses delays of 0, 0.16s and 0.32s.
-    final phase = (controller.value - index * 0.128) % 1.0;
-    final wave = (0.5 - (phase - 0.5).abs()) * 2;
-
-    return Transform.translate(
-      offset: Offset(0, -4 * wave.clamp(0.0, 1.0)),
-      child: Container(
-        width: 6,
-        height: 6,
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.35 + (0.65 * wave.clamp(0.0, 1.0))),
-          shape: BoxShape.circle,
-        ),
-      ),
-    );
-  }
-}
-
-/// The read receipt, drawn in a fixed slot below the message list.
-class ReadReceipt extends StatelessWidget {
-  const ReadReceipt({super.key, required this.status, required this.isMine});
-
-  final MessageStatus status;
-  final bool isMine;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!isMine) return const SizedBox(height: 16);
-
-    final seen = status == MessageStatus.seen;
-    final color = seen ? const Color(0xFF38BDF8) : const Color(0xFF9CA3AF);
-
-    return SizedBox(
-      height: 16,
-      child: Padding(
-        padding: const EdgeInsets.only(right: 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            Icon(
-              seen ? Icons.done_all_rounded : Icons.done_rounded,
-              size: 14,
-              color: color,
-            ),
-          ],
-        ),
       ),
     );
   }

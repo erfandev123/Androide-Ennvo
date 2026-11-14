@@ -16,7 +16,7 @@ class PostService {
 
   /// Subscribes to the main home feed, newest first.
   static Stream<List<AppPost>> subscribeFeed({int pageSize = 30}) {
-    if (!FirebaseService.isReady) return const Stream.empty();
+    if (!FirebaseService.isReady) return Stream.value(const <AppPost>[]);
 
     return FirebaseService.firestore
         .collection('posts')
@@ -37,7 +37,7 @@ class PostService {
     String userId, {
     int pageSize = 30,
   }) {
-    if (!FirebaseService.isReady) return const Stream.empty();
+    if (!FirebaseService.isReady) return Stream.value(const <AppPost>[]);
 
     return FirebaseService.firestore
         .collection('posts')

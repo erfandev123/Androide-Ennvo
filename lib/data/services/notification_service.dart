@@ -18,7 +18,7 @@ class NotificationService {
   /// Subscribes to the activity of one user.
   static Stream<List<AppNotification>> subscribeNotifications(String userId) {
     if (!FirebaseService.isReady || userId.isEmpty) {
-      return const Stream.empty();
+      return Stream.value(const <AppNotification>[]);
     }
 
     return FirebaseService.firestore

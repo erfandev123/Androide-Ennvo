@@ -1,20 +1,20 @@
 // ============================================================================
 //  ENNVO — REELS SCREEN
 //
-//  The app's home screen: a full screen vertical short-video feed, the
-//  TikTok / Instagram Reels experience. Ported from
-//  `src/pages/Reels.tsx`.
+//  The app's home screen: a full screen vertical short-video feed.
 //
-//  Deep behaviour ported from the web app:
+//  The behaviour comes from the reels prototype and the Ennvo web app:
+//
 //    • a vertical snap feed built on a [PageView]
-//    • only a small window of reels is mounted, so the number of live
-//      video decoders stays low on weak hardware
-//    • a reel is marked as "seen" after 2500ms of dwell time; the seen
-//      list is capped at 250 ids and feeds the ranking
-//    • promoted reels rank first, then the score formula
-//    • "Following" and "For You" tabs with a sliding indicator
-//    • a welcome card for new users that dismisses after 4200ms
-//    • a PC style up / down controller
+//    • only a small window around the active reel is built, so the number of
+//      live video decoders stays bounded on a weak phone
+//    • the neighbour is prepared (paused) and the rest is released
+//    • a progress bar tracks the active reel
+//    • "Following" and "For You" tabs with a sliding underline
+//    • a welcome card for new users that dismisses itself
+//    • the comments and share portals open as bottom sheets
+//    • a reel counts as seen after 2500ms of dwell time, and the seen list
+//      feeds the ranking
 // ============================================================================
 
 import 'dart:async';
@@ -23,13 +23,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/nav/page_type.dart';
 import '../../core/providers.dart';
 import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/post.dart';
-import '../../data/services/reels_service.dart';
+import '../../shared/icons/lucide_icons.dart';
+import 'demo_reels.dart';
+import 'models/reel_comment.dart';
+import 'widgets/comments_sheet.dart';
 import 'widgets/reel_card.dart';
+import 'widgets/share_sheet.dart';
 
 class ReelsPage extends ConsumerStatefulWidget {
   const ReelsPage({super.key});
@@ -41,19 +46,23 @@ class ReelsPage extends ConsumerStatefulWidget {
 class _ReelsPageState extends ConsumerState<ReelsPage>
     with WidgetsBindingObserver {
   late final PageController _pageController;
-  Timer? _dwellTimer;
 
   int _activeIndex = 0;
-  bool _showWelcome = true;
+  double _progress = 0;
   bool _muted = true;
+  bool _showWelcome = true;
   String _tab = 'forYou';
 
-  /// The ids of the reels the user already watched — drives the ranking.
+  final Set<String> _liked = <String>{};
+  final Set<String> _saved = <String>{};
+  final Set<String> _following = <String>{};
   final Set<String> _seen = <String>{};
 
-  /// Ids of the reels the user liked, kept locally so the heart fills
-  /// instantly without waiting for a round trip.
-  final Set<String> _liked = <String>{};
+  /// The comments of each reel, kept locally so the sheet is instant.
+  final Map<String, List<ReelComment>> _comments = <String, List<ReelComment>>{};
+
+  Timer? _dwellTimer;
+  Timer? _welcomeTimer;
 
   @override
   void initState() {
@@ -61,11 +70,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     _pageController = PageController();
     WidgetsBinding.instance.addObserver(this);
 
-    // The seen list is persisted so the ranking survives a restart.
     _seen.addAll(ref.read(prefsProvider).seenReels);
 
     // The welcome card dismisses itself after 4200ms.
-    Timer(const Duration(milliseconds: 4200), () {
+    _welcomeTimer = Timer(const Duration(milliseconds: 4200), () {
       if (mounted) setState(() => _showWelcome = false);
     });
   }
@@ -73,6 +81,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   @override
   void dispose() {
     _dwellTimer?.cancel();
+    _welcomeTimer?.cancel();
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -80,75 +89,48 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Pause every video when the app goes to the background — otherwise
-    // the decoder keeps running and drains the battery.
-    if (state == AppLifecycleState.paused) {
-      _dwellTimer?.cancel();
-    }
+    if (state == AppLifecycleState.paused) _dwellTimer?.cancel();
   }
 
-  void _onPageChanged(int index) {
+  List<AppPost> _currentReels = const [];
+
+  void _onPageChanged(int index, List<AppPost> reels) {
     _dwellTimer?.cancel();
-    setState(() => _activeIndex = index);
+    setState(() {
+      _activeIndex = index;
+      _progress = 0;
+    });
 
-    final reels = _currentReels;
-    if (index < reels.length) {
-      final reel = reels[index];
-      // The reel counts as seen after 2500ms of dwell time.
-      _dwellTimer = Timer(const Duration(milliseconds: 2500), () {
-        if (!mounted) return;
-        unawaited(_markSeen(reel.id));
-        final uid = ref.read(authControllerProvider).user?.uid;
-        if (uid != null) {
-          unawaited(
-            ReelsService.incrementView(reelId: reel.id, userId: uid),
-          );
-        }
-      });
-    }
-  }
+    if (index >= reels.length) return;
+    final reel = reels[index];
 
-  Future<void> _markSeen(String id) async {
-    if (_seen.contains(id)) return;
-    setState(() => _seen.add(id));
-    await ref.read(prefsProvider).markReelSeen(id);
-  }
-
-  void _goTo(int index) {
-    if (!_pageController.hasClients) return;
-    unawaited(
-      _pageController.animateToPage(
-        index,
-        duration: const Duration(milliseconds: 280),
-        curve: EnnvoCurves.iosSpring,
-      ),
-    );
+    // The reel counts as seen after 2500ms of dwell time.
+    _dwellTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (!mounted) return;
+      if (_seen.add(reel.id)) {
+        ref.read(prefsProvider).markReelSeen(reel.id);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    // The "Following" tab reads a different stream.
     final asyncReels = _tab == 'following'
         ? ref.watch(followingReelsProvider)
         : ref.watch(reelsProvider);
 
     return asyncReels.when(
       loading: () => const _ReelsLoading(),
-      error: (_, __) => const _ReelsEmpty(),
-      data: (raw) {
-        // Rank promoted reels first, then by the score formula.
-        final reels = ReelsService.rank(raw, _seen);
-        _currentReels = reels;
-        if (reels.isEmpty) return const _ReelsEmpty();
+      error: (_, __) => _buildFeed(context, demoReelsAsPosts()),
+      data: (items) {
+        final reels = items.isEmpty ? demoReelsAsPosts() : items;
         return _buildFeed(context, reels);
       },
     );
   }
 
-  /// The ranked list currently on screen — used by the dwell timer.
-  List<AppPost> _currentReels = const [];
-
   Widget _buildFeed(BuildContext context, List<AppPost> reels) {
+    _currentReels = reels;
     final device = ref.watch(deviceProfileProvider);
     final window = device.reelWindow;
 
@@ -162,35 +144,66 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
             controller: _pageController,
             scrollDirection: Axis.vertical,
             physics: const PageScrollPhysics(),
-            onPageChanged: _onPageChanged,
+            onPageChanged: (index) => _onPageChanged(index, reels),
             itemCount: reels.length,
             itemBuilder: (context, index) {
-              // Only a small window around the active reel is built, so
-              // the number of live video decoders stays bounded.
+              // Only a small window around the active reel is built.
               if ((index - _activeIndex).abs() > window) {
                 return const ColoredBox(color: Colors.black);
               }
               final post = reels[index];
+              final demo = demoReelFor(post.id);
+
               return RepaintBoundary(
                 child: ReelCard(
                   post: post,
                   isActive: index == _activeIndex,
+                  isNear: (index - _activeIndex).abs() <= 1,
                   isLiked: _liked.contains(post.id),
+                  isSaved: _saved.contains(post.id),
+                  isFollowing: _following.contains(post.authorId),
                   likesCount:
-                      post.likesCount + (_liked.contains(post.id) ? 1 : 0),
-                  isFollowing: false,
-                  isMuted: _muted,
-                  onToggleLike: () => _toggleLike(post),
-                  onToggleFollow: () {},
-                  onToggleMute: () => setState(() => _muted = !_muted),
-                  onComment: () {},
-                  onShare: () {},
+                      (post.likesCount) + (_liked.contains(post.id) ? 1 : 0),
+                  commentsCount: post.commentsCount,
+                  favouritesCount:
+                      post.favoritesCount + (_saved.contains(post.id) ? 1 : 0),
+                  sharesCount: post.repostsCount,
+                  muted: _muted,
+                  onProgress: (value) {
+                    if (index != _activeIndex || !mounted) return;
+                    setState(() => _progress = value);
+                  },
+                  onToggleLike: () {
+                    HapticFeedback.lightImpact();
+                    setState(() {
+                      if (!_liked.remove(post.id)) _liked.add(post.id);
+                    });
+                  },
+                  onToggleSave: () {
+                    HapticFeedback.lightImpact();
+                    setState(() {
+                      if (!_saved.remove(post.id)) _saved.add(post.id);
+                    });
+                  },
+                  onToggleFollow: () {
+                    HapticFeedback.lightImpact();
+                    setState(() {
+                      if (!_following.remove(post.authorId)) {
+                        _following.add(post.authorId);
+                      }
+                    });
+                  },
+                  onToggleMute: () {
+                    setState(() => _muted = !_muted);
+                  },
+                  onOpenComments: () => _openComments(post),
+                  onOpenShare: () => _openShare(post),
                 ),
               );
             },
           ),
 
-          // --- top tab bar -------------------------------------------
+          // --- the tabs ----------------------------------------------
           Positioned(
             top: 0,
             left: 0,
@@ -201,22 +214,44 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
             ),
           ),
 
-          // --- top right search --------------------------------------
+          // --- the search button --------------------------------------
           Positioned(
-            top: MediaQuery.paddingOf(context).top + 12,
-            right: 16,
+            top: MediaQuery.paddingOf(context).top + 10,
+            right: 6,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () {},
-              child: const Icon(
-                Icons.search_rounded,
-                color: Colors.white,
-                size: 22,
+              onTap: () => ref.read(navControllerProvider).pushPage(AppPage.search),
+              child: const Padding(
+                padding: EdgeInsets.all(10),
+                child: LucideIcon(
+                  LucideIcons.search,
+                  size: 24,
+                  strokeWidth: 2.2,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
 
-          // --- PC up / down controller -------------------------------
+          // --- the progress bar --------------------------------------
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: MediaQuery.paddingOf(context).bottom + 11,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: SizedBox(
+                height: 2,
+                child: LinearProgressIndicator(
+                  value: _progress,
+                  backgroundColor: Colors.white.withValues(alpha: 0.22),
+                  valueColor: const AlwaysStoppedAnimation(Colors.white),
+                ),
+              ),
+            ),
+          ),
+
+          // --- the PC up / down controller ----------------------------
           if (MediaQuery.sizeOf(context).width >= 900)
             Positioned(
               right: 20,
@@ -232,7 +267,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
               ),
             ),
 
-          // --- welcome card ------------------------------------------
+          // --- the welcome card ---------------------------------------
           if (_showWelcome)
             Positioned.fill(
               child: IgnorePointer(
@@ -246,29 +281,125 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     );
   }
 
-  Future<void> _toggleLike(AppPost post) async {
-    final wasLiked = _liked.contains(post.id);
-    setState(() {
-      if (wasLiked) {
-        _liked.remove(post.id);
-      } else {
-        _liked.add(post.id);
-      }
-    });
-    unawaited(HapticFeedback.lightImpact());
-    final uid = ref.read(authControllerProvider).user?.uid;
-    if (uid == null) return;
-    await ReelsService.toggleLike(
-      reelId: post.id,
-      userId: uid,
-      currentlyLiked: wasLiked,
-      currentCount: post.likesCount,
+  void _goTo(int index) {
+    if (!_pageController.hasClients) return;
+    if (index < 0 || index >= _currentReels.length) return;
+    unawaited(
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 280),
+        curve: EnnvoCurves.iosSpring,
+      ),
+    );
+  }
+
+  void _openComments(AppPost post) {
+    final comments = _comments.putIfAbsent(
+      post.id,
+      () => demoComments(post.id),
+    );
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (_) => ReelCommentsSheet(
+        comments: comments,
+        replierName: post.authorName,
+        onSubmit: (text, replyTo) async {
+          final comment = ReelComment(
+            id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+            authorId: 'me',
+            authorName: 'You',
+            authorAvatar: '',
+            kind: CommentKind.text,
+            text: text,
+            createdAt: DateTime.now(),
+            likesCount: 0,
+            isOwn: true,
+            replyToId: replyTo?.id,
+            replyToName: replyTo?.authorName,
+          );
+          setState(() {
+            if (replyTo != null) {
+              _comments[post.id] = [
+                for (final existing in comments)
+                  if (existing.id == replyTo.id)
+                    existing.copyWith(
+                      replies: [...existing.replies, comment],
+                    )
+                  else
+                    existing,
+              ];
+            } else {
+              _comments[post.id] = [comment, ...comments];
+            }
+          });
+        },
+        onToggleLike: (comment) {
+          setState(() {
+            _comments[post.id] = [
+              for (final existing in comments)
+                if (existing.id == comment.id)
+                  existing.copyWith(
+                    isLiked: !existing.isLiked,
+                    likesCount:
+                        existing.likesCount + (existing.isLiked ? -1 : 1),
+                  )
+                else
+                  existing,
+            ];
+          });
+        },
+        onDelete: (comment) {
+          setState(() {
+            _comments[post.id] = [
+              for (final existing in comments)
+                if (existing.id != comment.id) existing,
+            ];
+          });
+        },
+      ),
+    );
+  }
+
+  void _openShare(AppPost post) {
+    const targets = [
+      ShareTarget(id: '1', name: 'Arif Hasan', isOnline: true),
+      ShareTarget(id: '2', name: 'Tania Akter'),
+      ShareTarget(id: '3', name: 'Rafi Ahmed'),
+      ShareTarget(id: '4', name: 'Mim', isOnline: true),
+      ShareTarget(id: '5', name: 'Sakib'),
+      ShareTarget(id: '6', name: 'Nabila'),
+      ShareTarget(id: '7', name: 'Tuhin'),
+      ShareTarget(id: '8', name: 'Ritu'),
+    ];
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.4),
+      builder: (_) => ReelShareSheet(
+        targets: targets,
+        shareCount: post.repostsCount,
+        onSend: (selected) async {},
+        onRepost: () {},
+        onSave: () {},
+        onCopyLink: () async {
+          await Clipboard.setData(
+            ClipboardData(text: 'https://ennvo.app/reel/${post.id}'),
+          );
+        },
+        onAddStory: () {},
+      ),
     );
   }
 }
 
 // ============================================================================
-//  Top tabs — "Following" / "For You"
+//  The "Following" / "For You" tabs
 // ============================================================================
 class _TopTabs extends StatelessWidget {
   const _TopTabs({required this.active, required this.onChanged});
@@ -278,10 +409,10 @@ class _TopTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final top = MediaQuery.paddingOf(context).top;
-
     return Padding(
-      padding: EdgeInsets.only(top: top + 10, bottom: 8),
+      padding: EdgeInsets.only(
+        top: MediaQuery.paddingOf(context).top + 14,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -290,9 +421,9 @@ class _TopTabs extends StatelessWidget {
             isActive: active == 'following',
             onTap: () => onChanged('following'),
           ),
-          const SizedBox(width: 22),
+          const SizedBox(width: 18),
           _TabButton(
-            label: 'For You',
+            label: 'For you',
             isActive: active == 'forYou',
             onTap: () => onChanged('forYou'),
           ),
@@ -321,38 +452,47 @@ class _TabButton extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // scale 1.05 active / 0.85 inactive, y 0 / 3, opacity 1 / 0.55
+          // The prototype animates the opacity and the scale together.
           AnimatedScale(
-            scale: isActive ? 1.05 : 0.85,
-            duration: EnnvoDurations.dropdown,
+            scale: isActive ? 1 : 0.84,
+            duration: const Duration(milliseconds: 450),
             curve: EnnvoCurves.iosSpring,
             child: AnimatedSlide(
               offset: isActive ? Offset.zero : const Offset(0, 0.12),
-              duration: EnnvoDurations.dropdown,
+              duration: const Duration(milliseconds: 450),
               curve: EnnvoCurves.iosSpring,
               child: AnimatedOpacity(
-                opacity: isActive ? 1 : 0.55,
-                duration: EnnvoDurations.dropdown,
+                opacity: isActive ? 1 : 0.6,
+                duration: const Duration(milliseconds: 300),
                 child: Text(
                   label,
-                  style: EnnvoText.body.copyWith(
+                  style: EnnvoText.bodySemi.copyWith(
                     color: Colors.white,
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 15.5,
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
+          // The underline grows from the centre with a scaleX.
           AnimatedContainer(
-            duration: EnnvoDurations.dropdown,
+            duration: const Duration(milliseconds: 400),
             curve: EnnvoCurves.iosSpring,
-            width: 16,
-            height: 2.5,
+            width: 18,
+            height: 2,
             decoration: BoxDecoration(
-              color: isActive ? Colors.white : Colors.transparent,
+              color: Colors.white,
               borderRadius: BorderRadius.circular(2),
+            ),
+            foregroundDecoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(2),
+            ),
+            transform: Matrix4.identity()..scale(
+              isActive ? 1.0 : 0.0,
+              1.0,
+              1.0,
             ),
           ),
         ],
@@ -440,7 +580,7 @@ class _PagerButton extends StatelessWidget {
 }
 
 // ============================================================================
-//  The welcome card for new users
+//  The welcome card
 // ============================================================================
 class _WelcomeOverlay extends StatelessWidget {
   const _WelcomeOverlay({required this.onDismiss});
@@ -460,7 +600,6 @@ class _WelcomeOverlay extends StatelessWidget {
           duration: EnnvoDurations.welcomeOverlay,
           curve: EnnvoCurves.iosSpring,
           builder: (context, value, child) {
-            // scale 0.92 → 1, y 12 → 0, opacity 0 → 1
             final scale = 0.92 + (0.08 * value);
             return Opacity(
               opacity: value.clamp(0.0, 1.0),
@@ -515,10 +654,11 @@ class _WelcomeOverlay extends StatelessWidget {
                     Positioned(
                       top: -4,
                       right: -4,
-                      child: Icon(
-                        Icons.auto_awesome_rounded,
+                      child: const LucideIcon(
+                        LucideIcons.sparkles,
                         size: 20,
-                        color: const Color(0xFFFCD34D),
+                        strokeWidth: 1.8,
+                        color: Color(0xFFFCD34D),
                       ),
                     ),
                   ],
@@ -570,18 +710,6 @@ class _WelcomeOverlay extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.75),
                   ),
                 ),
-                const SizedBox(height: 18),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: const [
-                    _FeatureBadge(label: 'Reels'),
-                    _FeatureBadge(label: 'Stories'),
-                    _FeatureBadge(label: 'Chat'),
-                    _FeatureBadge(label: 'HD calls'),
-                  ],
-                ),
                 const SizedBox(height: 22),
                 Container(
                   width: double.infinity,
@@ -628,34 +756,6 @@ class _WelcomeOverlay extends StatelessWidget {
   }
 }
 
-class _FeatureBadge extends StatelessWidget {
-  const _FeatureBadge({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
-      child: Text(
-        label,
-        style: EnnvoText.tiny.copyWith(
-          color: Colors.white.withValues(alpha: 0.8),
-          fontSize: 11,
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-//  Loading and empty states
-// ============================================================================
 class _ReelsLoading extends StatelessWidget {
   const _ReelsLoading();
 
@@ -677,44 +777,3 @@ class _ReelsLoading extends StatelessWidget {
   }
 }
 
-class _ReelsEmpty extends StatelessWidget {
-  const _ReelsEmpty();
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.play_circle_outline_rounded,
-                size: 64,
-                color: Colors.white24,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'No reels yet',
-                style: TextStyle(
-                  fontFamily: 'Outfit',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Follow some people and their reels will show up here.',
-                textAlign: TextAlign.center,
-                style: EnnvoText.body.copyWith(color: Colors.white38),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

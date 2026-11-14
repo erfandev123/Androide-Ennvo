@@ -43,6 +43,14 @@ flutter:
 
   assets:
     - assets/fonts/
+    - assets/demo/reels/r1.jpg
+    - assets/demo/reels/r2.jpg
+    - assets/demo/reels/r3.jpg
+    - assets/demo/reels/r4.jpg
+    - assets/demo/reels/r1.mp4
+    - assets/demo/reels/r2.mp4
+    - assets/demo/reels/r3.mp4
+    - assets/demo/reels/r4.mp4
 
   fonts:
     - family: Outfit

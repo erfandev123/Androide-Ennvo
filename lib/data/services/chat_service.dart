@@ -29,7 +29,7 @@ class ChatService {
   /// Subscribes to every conversation the user takes part in.
   static Stream<List<Conversation>> subscribeConversations(String userId) {
     if (!FirebaseService.isReady || userId.isEmpty) {
-      return const Stream.empty();
+      return Stream.value(const <Conversation>[]);
     }
 
     return FirebaseService.firestore
@@ -92,7 +92,7 @@ class ChatService {
     int limit = 40,
   }) {
     if (!FirebaseService.isReady || conversationId.isEmpty) {
-      return const Stream.empty();
+      return Stream.value(const <AppMessage>[]);
     }
 
     return FirebaseService.firestore

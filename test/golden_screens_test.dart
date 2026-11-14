@@ -19,6 +19,8 @@ import 'package:ennvo/core/providers.dart';
 import 'package:ennvo/core/storage/app_prefs.dart';
 import 'package:ennvo/core/theme/app_theme.dart';
 import 'package:ennvo/features/auth/auth_page.dart';
+import 'package:ennvo/features/messages/messages_page.dart';
+import 'package:ennvo/features/reels/reels_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -117,6 +119,39 @@ void main() {
     await expectLater(
       find.byType(AuthPage),
       matchesGoldenFile('goldens/auth_dark.png'),
+    );
+  });
+
+  testWidgets('reels screen', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs();
+    await tester.pumpWidget(_harness(prefs, const ReelsPage()));
+    // Let the welcome card time out so the golden shows the feed itself.
+    await tester.pump(const Duration(milliseconds: 5000));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(ReelsPage),
+      matchesGoldenFile('goldens/reels.png'),
+    );
+  });
+
+  testWidgets('messages screen', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs();
+    await tester.pumpWidget(_harness(prefs, const MessagesPage()));
+    await tester.pump(const Duration(milliseconds: 600));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(MessagesPage),
+      matchesGoldenFile('goldens/messages.png'),
     );
   });
 }

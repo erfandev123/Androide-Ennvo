@@ -1,15 +1,18 @@
 // ============================================================================
 //  ENNVO — MESSAGES SCREEN
 //
-//  Ported from `src/pages/Messages.tsx`.
+//  The chat, ported from `src/pages/Messages.tsx`.
 //
-//  Two states:
-//    • the conversation list — stories on top, then the conversations
-//    • an active conversation — header, message list, typing indicator,
-//      read receipt slot and the input bar
+//  Two panes:
+//    • the conversation list — a stories row on top, then the conversations
+//    • the active conversation — the header, the messages, the read receipt
+//      slot and the composer
 //
-//  The chat surface keeps the web app's deliberate choice: the chat view
-//  stays **light** even in dark mode.
+//  On a wide screen the two sit side by side with a draggable divider; on a
+//  phone the list and the chat are two separate screens.
+//
+//  The chat view stays **light** even in dark mode, exactly like the web
+//  app's `.chat-view-container`.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -20,9 +23,9 @@ import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/message.dart';
-import '../../data/services/chat_service.dart';
 import '../../shared/icons/lucide_icons.dart';
 import 'widgets/chat_bubble.dart';
+import 'widgets/chat_composer.dart';
 
 class MessagesPage extends ConsumerStatefulWidget {
   const MessagesPage({super.key});
@@ -33,560 +36,822 @@ class MessagesPage extends ConsumerStatefulWidget {
 
 class _MessagesPageState extends ConsumerState<MessagesPage> {
   String? _activeConversationId;
-  final TextEditingController _input = TextEditingController();
-  final ScrollController _scroll = ScrollController();
+  AppMessage? _replyTo;
+  double _sidebarWidth = 440;
+  bool _draggingDivider = false;
 
-  @override
-  void dispose() {
-    _input.dispose();
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  String get _currentUserId =>
-      ref.read(authControllerProvider).user?.uid ?? '';
-
-  void _openConversation(Conversation conversation) {
-    setState(() => _activeConversationId = conversation.id);
-    ChatService.markRead(
-      conversationId: conversation.id,
-      userId: _currentUserId,
-    );
-  }
-
-  Future<void> _send() async {
-    final text = _input.text.trim();
-    final conversationId = _activeConversationId;
-    final uid = _currentUserId;
-    if (text.isEmpty || conversationId == null || uid.isEmpty) return;
-
-    _input.clear();
-    final messageId =
-        '${DateTime.now().microsecondsSinceEpoch}_${uid.hashCode.abs()}';
-
-    await ChatService.sendMessage(
-      conversationId: conversationId,
-      messageId: messageId,
-      senderId: uid,
-      type: MessageType.text,
-      content: text,
-    );
-  }
+  /// The local message list, so the demo works without a backend.
+  final Map<String, List<AppMessage>> _messages = <String, List<AppMessage>>{};
 
   @override
   Widget build(BuildContext context) {
-    final conversationId = _activeConversationId;
+    final t = context.tokens;
+    final loaded = ref.watch(conversationsProvider).value;
+    final conversations = (loaded == null || loaded.isEmpty)
+        ? _demoConversations()
+        : loaded;
+    final active = _activeConversationId;
+    final isWide = _isWide(context);
+
+    final ambientGlow = Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 300,
+      child: IgnorePointer(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                (t.isDark
+                        ? const Color(0xFF2563EB)
+                        : const Color(0xFF38BDF8))
+                    .withValues(alpha: t.isDark ? 0.2 : 0.14),
+                (t.isDark
+                        ? const Color(0xFF1E3A8A)
+                        : const Color(0xFF3B82F6))
+                    .withValues(alpha: 0.05),
+                Colors.transparent,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final list = _ConversationList(
+      conversations: conversations,
+      onOpen: (id) => setState(() => _activeConversationId = id),
+    );
+
+    final chat = active == null
+        ? null
+        : _ChatPane(
+            conversationId: active,
+            messages: _messages[active] ?? const [],
+            replyTo: _replyTo,
+            onBack: () => setState(() => _activeConversationId = null),
+            onReply: (message) => setState(() => _replyTo = message),
+            onCancelReply: () => setState(() => _replyTo = null),
+            onSend: (text, replyTo) async {
+              final message = AppMessage(
+                id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+                senderId: 'me',
+                type: MessageType.text,
+                content: text,
+                createdAt: DateTime.now(),
+                status: MessageStatus.sent,
+                replyTo: replyTo == null
+                    ? null
+                    : ReplyPreview(
+                        id: replyTo.id,
+                        text: replyTo.content,
+                        authorName: 'them',
+                      ),
+              );
+              setState(() {
+                _messages[active] = [...?_messages[active], message];
+              });
+            },
+          );
 
     return Scaffold(
-      // The chat surface stays light in dark mode, like the web app.
-      backgroundColor: context.tokens.chatBackground,
-      body: conversationId == null
-          ? _ConversationList(onOpen: _openConversation)
-          : _ConversationView(
-              conversationId: conversationId,
-              currentUserId: _currentUserId,
-              input: _input,
-              scroll: _scroll,
-              onSend: _send,
-              onBack: () => setState(() => _activeConversationId = null),
+      backgroundColor: t.isDark ? Colors.black : Colors.white,
+      body: Stack(
+        children: [
+          ambientGlow,
+          // --- the phone layout: one pane at a time --------------------
+          if (!isWide)
+            chat ?? list
+          // --- the wide layout: the list and the chat side by side ------
+          else
+            Row(
+              children: [
+                SizedBox(width: _sidebarWidth, child: list),
+                if (chat != null) ...[
+                  _Divider(
+                    dragging: _draggingDivider,
+                    onDrag: (delta) {
+                      setState(() {
+                        _sidebarWidth = (_sidebarWidth + delta).clamp(
+                          320.0,
+                          620.0,
+                        );
+                      });
+                    },
+                    onStart: () => setState(() => _draggingDivider = true),
+                    onEnd: () => setState(() => _draggingDivider = false),
+                  ),
+                  Expanded(child: chat),
+                ],
+              ],
             ),
+        ],
+      ),
     );
   }
+
+  static bool _isWide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= 768;
+
+  List<Conversation> _demoConversations() => [
+    Conversation(
+      id: 'demo-1',
+      participantIds: const ['me', 'demo-a'],
+      participantNames: const {'demo-a': 'Arif Hasan'},
+      participantAvatars: const {'demo-a': ''},
+      lastMessage: 'ওয়াও, আলোটা কী সুন্দর!',
+      unreadCount: const {'me': 2},
+      updatedAt: DateTime.now().subtract(const Duration(minutes: 4)),
+    ),
+    Conversation(
+      id: 'demo-2',
+      participantIds: const ['me', 'demo-b'],
+      participantNames: const {'demo-b': 'Tania Akter'},
+      participantAvatars: const {'demo-b': ''},
+      lastMessage: 'Location ta kothay bhai?',
+      unreadCount: const {'me': 0},
+      updatedAt: DateTime.now().subtract(const Duration(hours: 2)),
+    ),
+    Conversation(
+      id: 'demo-3',
+      participantIds: const ['me', 'demo-c'],
+      participantNames: const {'demo-c': 'Rafi Ahmed'},
+      participantAvatars: const {'demo-c': ''},
+      lastMessage: 'Sent a message',
+      unreadCount: const {'me': 0},
+      updatedAt: DateTime.now().subtract(const Duration(days: 1)),
+    ),
+  ];
 }
 
 // ============================================================================
 //  The conversation list
 // ============================================================================
-class _ConversationList extends ConsumerWidget {
-  const _ConversationList({required this.onOpen});
+class _ConversationList extends StatelessWidget {
+  const _ConversationList({required this.conversations, required this.onOpen});
 
-  final ValueChanged<Conversation> onOpen;
+  final List<Conversation> conversations;
+  final ValueChanged<String> onOpen;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final t = context.tokens;
-    final conversations = ref.watch(conversationsProvider);
-    final top = MediaQuery.paddingOf(context).top;
 
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-            child: Row(
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          right: BorderSide(
+            color: t.isDark ? const Color(0x1AFFFFFF) : const Color(0x80E5E7EB),
+          ),
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // --- the header -------------------------------------------
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Row(
+                children: [
+                  _CircleButton(
+                    icon: LucideIcons.users,
+                    onTap: () {},
+                    semanticLabel: 'New group',
+                  ),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      Text(
+                        'Chats',
+                        style: EnnvoText.titleLg.copyWith(
+                          color: t.isDark ? Colors.white : const Color(0xFF0A0A0A),
+                          fontSize: 20,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const LucideIcon(
+                        LucideIcons.chevronDown,
+                        size: 16,
+                        strokeWidth: 2.4,
+                        color: Color(0xFF737373),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF0EA5E9),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  _CircleButton(
+                    icon: LucideIcons.search,
+                    onTap: () {},
+                    semanticLabel: 'Search',
+                  ),
+                ],
+              ),
+            ),
+
+            // --- the stories row --------------------------------------
+            SizedBox(
+              height: 108,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                children: const [
+                  _StoryTile(name: 'Create', isCreate: true),
+                  _StoryTile(name: 'Arif', viewed: false),
+                  _StoryTile(name: 'Tania', viewed: false),
+                  _StoryTile(name: 'Rafi', viewed: true),
+                  _StoryTile(name: 'Mim', viewed: true),
+                ],
+              ),
+            ),
+
+            // --- the conversations ------------------------------------
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.only(bottom: 90),
+                itemCount: conversations.length,
+                itemBuilder: (context, index) {
+                  final conversation = conversations[index];
+                  return _ConversationRow(
+                    conversation: conversation,
+                    currentUserId: 'me',
+                    onTap: () => onOpen(conversation.id),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+//  One conversation row
+// ============================================================================
+class _ConversationRow extends StatelessWidget {
+  const _ConversationRow({
+    required this.conversation,
+    required this.currentUserId,
+    required this.onTap,
+  });
+
+  final Conversation conversation;
+  final String currentUserId;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final name = conversation.displayName(currentUserId);
+    final unread = conversation.unreadFor(currentUserId);
+    final isUnread = unread > 0;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          children: [
+            Stack(
               children: [
-                Text(
-                  'Inbox',
-                  style: EnnvoText.pageHero.copyWith(color: t.textPrimary),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: t.surfaceAlt,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+                    style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+                  ),
                 ),
-                const Spacer(),
-                LucideIcon(
-                  LucideIcons.search,
-                  size: 21,
-                  strokeWidth: 2.2,
-                  color: t.textPrimary,
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0EA5E9),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: t.isDark ? const Color(0xFF16181F) : Colors.white,
+                        width: 2,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
-          ),
-          Expanded(
-            child: conversations.when(
-              loading: () => const Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2.2),
-                ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: EnnvoText.bodySemi.copyWith(
+                      color: t.isDark ? Colors.white : const Color(0xFF111827),
+                      fontSize: isUnread ? 15 : 14.5,
+                      fontWeight: isUnread ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    conversation.lastMessage.isEmpty
+                        ? 'Sent a message'
+                        : conversation.lastMessage,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: EnnvoText.caption.copyWith(
+                      color: isUnread
+                          ? (t.isDark ? Colors.white : const Color(0xFF111827))
+                          : (t.isDark
+                                ? const Color(0xFFA3A3A3)
+                                : const Color(0xFFA3A3A3)),
+                      fontSize: 13,
+                      fontWeight: isUnread ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ],
               ),
-              error: (_, __) => Center(
-                child: Text(
-                  'Could not load your inbox',
-                  style: EnnvoText.body.copyWith(color: t.textSecondary),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _relativeTime(conversation.updatedAt),
+                  style: EnnvoText.tiny.copyWith(
+                    color: t.isDark ? const Color(0xFF737373) : const Color(0xFFA3A3A3),
+                    fontSize: 11.5,
+                  ),
                 ),
-              ),
-              data: (items) {
-                if (items.isEmpty) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          LucideIcon(
-                            LucideIcons.messageCircle,
-                            size: 48,
-                            strokeWidth: 1.6,
-                            color: t.textTertiary,
-                          ),
-                          const SizedBox(height: 14),
-                          Text(
-                            'No conversations yet',
-                            style: EnnvoText.titleMd.copyWith(
-                              color: t.textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Start a chat and it will show up here.',
-                            textAlign: TextAlign.center,
-                            style: EnnvoText.body.copyWith(
-                              color: t.textSecondary,
-                            ),
-                          ),
-                        ],
+                if (unread > 0) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFE2C55),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      unread > 5 ? '5+' : '$unread',
+                      style: EnnvoText.tiny.copyWith(
+                        color: Colors.white,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  );
-                }
-
-                return ListView.separated(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const Divider(
-                    height: 1,
-                    indent: 78,
                   ),
-                  itemBuilder: (context, index) {
-                    final conversation = items[index];
-                    final uid =
-                        ref.watch(authControllerProvider).user?.uid ?? '';
-                    final unread = conversation.unreadFor(uid);
-
-                    return ListTile(
-                      onTap: () => onOpen(conversation),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 4,
-                      ),
-                      leading: _ConversationAvatar(
-                        url: conversation.displayAvatar(uid),
-                        name: conversation.displayName(uid),
-                      ),
-                      title: Text(
-                        conversation.displayName(uid),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: EnnvoText.bodySemi.copyWith(
-                          color: t.textPrimary,
-                          fontSize: 14.5,
-                        ),
-                      ),
-                      subtitle: Text(
-                        conversation.lastMessage,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: EnnvoText.caption.copyWith(
-                          color: t.textSecondary,
-                        ),
-                      ),
-                      trailing: unread > 0
-                          ? Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: kBrand,
-                                borderRadius: BorderRadius.circular(
-                                  AppRadius.pill,
-                                ),
-                              ),
-                              child: Text(
-                                '$unread',
-                                style: EnnvoText.tiny.copyWith(
-                                  color: Colors.white,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            )
-                          : null,
-                    );
-                  },
-                );
-              },
+                ],
+              ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  static String _relativeTime(DateTime? time) {
+    if (time == null) return '';
+    final delta = DateTime.now().difference(time);
+    if (delta.inSeconds < 45) return 'Just now';
+    if (delta.inMinutes < 60) return '${delta.inMinutes} min ago';
+    if (delta.inHours < 24) return '${delta.inHours} hour${delta.inHours == 1 ? '' : 's'} ago';
+    if (delta.inDays < 30) return '${delta.inDays} day${delta.inDays == 1 ? '' : 's'} ago';
+    return '${delta.inDays ~/ 30} month${delta.inDays ~/ 30 == 1 ? '' : 's'} ago';
   }
 }
 
 // ============================================================================
-//  The active conversation
+//  The story tile
 // ============================================================================
-class _ConversationView extends ConsumerWidget {
-  const _ConversationView({
-    required this.conversationId,
-    required this.currentUserId,
-    required this.input,
-    required this.scroll,
-    required this.onSend,
-    required this.onBack,
-  });
-
-  final String conversationId;
-  final String currentUserId;
-  final TextEditingController input;
-  final ScrollController scroll;
-  final VoidCallback onSend;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = context.tokens;
-    final messages = ref.watch(messagesProvider(conversationId));
-
-    return Column(
-      children: [
-        // --- header ----------------------------------------------------
-        _ConversationHeader(
-          conversationId: conversationId,
-          currentUserId: currentUserId,
-          onBack: onBack,
-        ),
-
-        // --- messages --------------------------------------------------
-        Expanded(
-          child: messages.when(
-            loading: () => const Center(
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2.2),
-              ),
-            ),
-            error: (_, __) => Center(
-              child: Text(
-                'Could not load the messages',
-                style: EnnvoText.body.copyWith(color: t.textSecondary),
-              ),
-            ),
-            data: (items) {
-              if (items.isEmpty) {
-                return Center(
-                  child: Text(
-                    'Say hello 👋',
-                    style: EnnvoText.body.copyWith(color: t.textTertiary),
-                  ),
-                );
-              }
-
-              return ListView.builder(
-                controller: scroll,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                itemCount: items.length,
-                itemBuilder: (context, index) {
-                  final message = items[index];
-                  final isMine = message.senderId == currentUserId;
-
-                  // The last bubble of a group gets the squared tail.
-                  final next = index + 1 < items.length ? items[index + 1] : null;
-                  final isLastInGroup =
-                      next == null || next.senderId != message.senderId;
-
-                  // The reply preview of the message above.
-                  AppMessage? replyTo;
-                  if (index > 0) {
-                    final previous = items[index - 1];
-                    if (previous.id == message.replyTo?.id) {
-                      replyTo = previous;
-                    }
-                  }
-
-                  return RepaintBoundary(
-                    child: ChatBubble(
-                      message: message,
-                      isMine: isMine,
-                      isLastInGroup: isLastInGroup,
-                      showReply: replyTo,
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-        ),
-
-        // --- typing indicator -----------------------------------------
-        const TypingIndicator(),
-
-        // --- read receipt ---------------------------------------------
-        ReadReceipt(
-          status: MessageStatus.seen,
-          isMine: true,
-        ),
-
-        // --- input bar -------------------------------------------------
-        _ChatInputBar(controller: input, onSend: onSend),
-      ],
-    );
-  }
-}
-
-class _ConversationHeader extends ConsumerWidget {
-  const _ConversationHeader({
-    required this.conversationId,
-    required this.currentUserId,
-    required this.onBack,
-  });
-
-  final String conversationId;
-  final String currentUserId;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final t = context.tokens;
-    final conversations = ref.watch(conversationsProvider).value ?? const <Conversation>[];
-    final conversation = conversations
-        .where((c) => c.id == conversationId)
-        .firstOrNull;
-
-    final name = conversation?.displayName(currentUserId) ?? 'Chat';
-    final avatar = conversation?.displayAvatar(currentUserId) ?? '';
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        6,
-        MediaQuery.paddingOf(context).top + 6,
-        8,
-        8,
-      ),
-      decoration: BoxDecoration(
-        color: t.chatBackground,
-        border: Border(bottom: BorderSide(color: t.border)),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: onBack,
-            icon: LucideIcon(
-              LucideIcons.chevronLeft,
-              size: 24,
-              strokeWidth: 2.4,
-              color: t.textPrimary,
-            ),
-            tooltip: 'Back',
-          ),
-          _ConversationAvatar(url: avatar, name: name, size: 38),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: EnnvoText.bodySemi.copyWith(
-                color: t.textPrimary,
-                fontSize: 15,
-              ),
-            ),
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: LucideIcon(
-              LucideIcons.phone,
-              size: 20,
-              strokeWidth: 2.2,
-              color: t.textPrimary,
-            ),
-            tooltip: 'Audio call',
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: LucideIcon(
-              LucideIcons.video,
-              size: 21,
-              strokeWidth: 2.2,
-              color: t.textPrimary,
-            ),
-            tooltip: 'Video call',
-          ),
-          IconButton(
-            onPressed: () {},
-            icon: LucideIcon(
-              LucideIcons.moreVertical,
-              size: 20,
-              strokeWidth: 2.2,
-              color: t.textPrimary,
-            ),
-            tooltip: 'Details',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ChatInputBar extends StatelessWidget {
-  const _ChatInputBar({required this.controller, required this.onSend});
-
-  final TextEditingController controller;
-  final VoidCallback onSend;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        10,
-        6,
-        10,
-        MediaQuery.paddingOf(context).bottom + 8,
-      ),
-      decoration: BoxDecoration(
-        color: t.chatBackground,
-        border: Border(top: BorderSide(color: t.border)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          IconButton(
-            onPressed: () {},
-            icon: LucideIcon(
-              LucideIcons.image,
-              size: 21,
-              strokeWidth: 2.2,
-              color: t.textSecondary,
-            ),
-            tooltip: 'Photo',
-          ),
-          Expanded(
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 42),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: t.isDark ? const Color(0xFFF2F4F7) : const Color(0xFFF2F4F7),
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-              child: TextField(
-                controller: controller,
-                minLines: 1,
-                maxLines: 4,
-                style: EnnvoText.body.copyWith(
-                  color: const Color(0xFF111827),
-                  fontSize: 14.5,
-                ),
-                cursorColor: kBrand,
-                decoration: InputDecoration(
-                  hintText: 'Message',
-                  hintStyle: EnnvoText.body.copyWith(
-                    color: const Color(0xFF9CA3AF),
-                    fontSize: 14.5,
-                  ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 11),
-                  isDense: true,
-                ),
-                onSubmitted: (_) => onSend(),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onSend,
-            child: Container(
-              width: 42,
-              height: 42,
-              decoration: const BoxDecoration(
-                color: kBrand,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.arrow_upward_rounded,
-                color: Colors.white,
-                size: 20,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConversationAvatar extends StatelessWidget {
-  const _ConversationAvatar({
-    required this.url,
+class _StoryTile extends StatelessWidget {
+  const _StoryTile({
     required this.name,
-    this.size = 48,
+    this.viewed = false,
+    this.isCreate = false,
   });
 
-  final String url;
   final String name;
-  final double size;
+  final bool viewed;
+  final bool isCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: Column(
+        children: [
+          SizedBox(
+            width: 72,
+            height: 72,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 72,
+                  height: 72,
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: isCreate
+                        ? const LinearGradient(
+                            colors: [
+                              Color(0xFF7C3AED),
+                              Color(0xFFEC4899),
+                              Color(0xFFF59E0B),
+                            ],
+                          )
+                        : (viewed
+                              ? null
+                              : const LinearGradient(
+                                  colors: [
+                                    Color(0xFF38BDF8),
+                                    Color(0xFF3B82F6),
+                                    Color(0xFF4F46E5),
+                                  ],
+                                )),
+                    color: viewed && !isCreate ? t.surfaceAlt : null,
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: t.isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+                      style: EnnvoText.titleMd.copyWith(color: t.textSecondary),
+                    ),
+                  ),
+                ),
+                if (isCreate)
+                  Positioned(
+                    right: -2,
+                    bottom: -2,
+                    child: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFF9333EA), Color(0xFFEC4899)],
+                        ),
+                        shape: BoxShape.circle,
+                        border: Border.fromBorderSide(
+                          BorderSide(color: Colors.white, width: 2),
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: const LucideIcon(
+                        LucideIcons.plus,
+                        size: 14,
+                        strokeWidth: 3,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: EnnvoText.tiny.copyWith(
+              color: t.isDark ? const Color(0xFFE5E5E5) : const Color(0xFF1F2937),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+//  The chat pane
+// ============================================================================
+class _ChatPane extends StatelessWidget {
+  const _ChatPane({
+    required this.conversationId,
+    required this.messages,
+    required this.replyTo,
+    required this.onBack,
+    required this.onReply,
+    required this.onCancelReply,
+    required this.onSend,
+  });
+
+  final String conversationId;
+  final List<AppMessage> messages;
+  final AppMessage? replyTo;
+  final VoidCallback onBack;
+  final ValueChanged<AppMessage> onReply;
+  final VoidCallback onCancelReply;
+  final Future<void> Function(String text, AppMessage? replyTo) onSend;
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
 
     return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: t.surfaceAlt,
-        image: url.isEmpty
-            ? null
-            : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
-      ),
-      child: url.isEmpty
-          ? Center(
-              child: Text(
-                name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-                style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+      color: t.chatBackground,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // --- the header --------------------------------------------
+            Container(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+              child: Row(
+                children: [
+                  if (MediaQuery.sizeOf(context).width < 768)
+                    IconButton(
+                      onPressed: onBack,
+                      icon: LucideIcon(
+                        LucideIcons.arrowLeft,
+                        size: 20,
+                        strokeWidth: 2.4,
+                        color: t.isDark
+                            ? const Color(0xFFF5F5F5)
+                            : const Color(0xFF1F2937),
+                      ),
+                      tooltip: 'Back',
+                    ),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: t.surfaceAlt,
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'A',
+                      style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Arif Hasan',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: EnnvoText.bodySemi.copyWith(
+                            color: t.isDark ? Colors.white : const Color(0xFF111827),
+                            fontSize: 17,
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        const Row(
+                          children: [
+                            LucideIcon(
+                              LucideIcons.mic,
+                              size: 11,
+                              strokeWidth: 2,
+                              color: Color(0xFFA855F7),
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'typing...',
+                              style: TextStyle(
+                                fontFamily: 'PlusJakartaSans',
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFA855F7),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {},
+                    icon: LucideIcon(
+                      LucideIcons.phone,
+                      size: 20,
+                      strokeWidth: 2.1,
+                      color: t.isDark
+                          ? const Color(0xFFE5E5E5)
+                          : const Color(0xFF374151),
+                    ),
+                    tooltip: 'Audio call',
+                  ),
+                  IconButton(
+                    onPressed: () {},
+                    icon: LucideIcon(
+                      LucideIcons.video,
+                      size: 21,
+                      strokeWidth: 2.1,
+                      color: t.isDark
+                          ? const Color(0xFFE5E5E5)
+                          : const Color(0xFF374151),
+                    ),
+                    tooltip: 'Video call',
+                  ),
+                  IconButton(
+                    onPressed: () {},
+                    icon: LucideIcon(
+                      LucideIcons.moreVertical,
+                      size: 20,
+                      strokeWidth: 2.1,
+                      color: t.isDark
+                          ? const Color(0xFFE5E5E5)
+                          : const Color(0xFF374151),
+                    ),
+                    tooltip: 'Details',
+                  ),
+                ],
               ),
-            )
-          : null,
+            ),
+
+            // --- the messages ------------------------------------------
+            Expanded(
+              child: messages.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Say hello 👋',
+                        style: EnnvoText.body.copyWith(color: t.textTertiary),
+                      ),
+                    )
+                  : ListView.builder(
+                      reverse: true,
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final message = messages[messages.length - 1 - index];
+                        final previous = index + 1 < messages.length
+                            ? messages[messages.length - 2 - index]
+                            : null;
+                        final next = index > 0
+                            ? messages[messages.length - index]
+                            : null;
+
+                        final isMine = message.senderId == 'me';
+                        final sameAsPrevious = previous != null &&
+                            previous.senderId == message.senderId &&
+                            _withinAMinute(previous, message);
+                        final sameAsNext = next != null &&
+                            next.senderId == message.senderId &&
+                            _withinAMinute(message, next);
+
+                        return ChatBubble(
+                          message: message,
+                          isMine: isMine,
+                          isFirstInGroup: !sameAsPrevious,
+                          isLastInGroup: !sameAsNext,
+                          replyPreview: null,
+                          onReply: () => onReply(message),
+                        );
+                      },
+                    ),
+            ),
+
+            // --- the read receipt slot ---------------------------------
+            const SizedBox(height: 15),
+
+            // --- the composer ------------------------------------------
+            ChatComposer(
+              replyTo: replyTo,
+              onCancelReply: onCancelReply,
+              onSend: onSend,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static bool _withinAMinute(AppMessage a, AppMessage b) {
+    final ta = a.createdAt;
+    final tb = b.createdAt;
+    if (ta == null || tb == null) return false;
+    return ta.difference(tb).inSeconds.abs() < 60;
+  }
+}
+
+// ============================================================================
+//  The draggable divider
+// ============================================================================
+class _Divider extends StatelessWidget {
+  const _Divider({
+    required this.dragging,
+    required this.onDrag,
+    required this.onStart,
+    required this.onEnd,
+  });
+
+  final bool dragging;
+  final ValueChanged<double> onDrag;
+  final VoidCallback onStart;
+  final VoidCallback onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: (_) => onStart(),
+      onHorizontalDragUpdate: (details) => onDrag(details.delta.dx),
+      onHorizontalDragEnd: (_) => onEnd(),
+      child: Container(
+        width: 9,
+        alignment: Alignment.center,
+        color: dragging ? const Color(0x330EA5E9) : null,
+        child: Container(
+          width: 2,
+          height: double.infinity,
+          color: dragging
+              ? const Color(0xFF0EA5E9)
+              : (t.isDark ? const Color(0x26FFFFFF) : const Color(0xCCE5E7EB)),
+        ),
+      ),
     );
   }
 }
 
-extension _FirstOrNull<T> on List<T> {
-  T? get firstOrNull => isEmpty ? null : first;
+// ============================================================================
+//  A round icon button
+// ============================================================================
+class _CircleButton extends StatelessWidget {
+  const _CircleButton({
+    required this.icon,
+    required this.onTap,
+    required this.semanticLabel,
+  });
+
+  final String icon;
+  final VoidCallback onTap;
+  final String semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: t.isDark
+                ? const Color(0x1AFFFFFF)
+                : const Color(0xB3FFFFFF),
+            border: Border.all(
+              color: t.isDark ? const Color(0x1AFFFFFF) : const Color(0x0D000000),
+            ),
+          ),
+          alignment: Alignment.center,
+          child: LucideIcon(
+            icon,
+            size: 18,
+            strokeWidth: 2.1,
+            color: t.isDark ? Colors.white : const Color(0xFF1F2937),
+          ),
+        ),
+      ),
+    );
+  }
 }

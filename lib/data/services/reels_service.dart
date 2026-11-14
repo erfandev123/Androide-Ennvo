@@ -23,7 +23,7 @@ class ReelsService {
 
   /// Subscribes to the newest reels.
   static Stream<List<AppPost>> subscribeReels({int pageSize = defaultPageSize}) {
-    if (!FirebaseService.isReady) return const Stream.empty();
+    if (!FirebaseService.isReady) return Stream.value(const <AppPost>[]);
 
     return FirebaseService.firestore
         .collection('posts')
@@ -45,7 +45,7 @@ class ReelsService {
     int pageSize = defaultPageSize,
   }) {
     if (!FirebaseService.isReady || followingIds.isEmpty) {
-      return const Stream.empty();
+      return Stream.value(const <AppPost>[]);
     }
 
     return FirebaseService.firestore
