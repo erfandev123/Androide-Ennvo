@@ -178,25 +178,72 @@ build — run that script, so a fresh clone builds without any local setup.
 | Check | Result |
 |---|---|
 | `flutter analyze` | no errors |
-| `flutter test` | 41 tests pass |
+| `flutter test` | 46 tests pass |
 | Android release APK | builds, signed, split per ABI |
-| `app-arm64-v8a-release.apk` | 19.7 MB |
-| `app-armeabi-v7a-release.apk` | 17.3 MB |
-| `app-x86_64-release.apk` | 20.9 MB |
+| `app-arm64-v8a-release.apk` | 20.3 MB |
+| `app-armeabi-v7a-release.apk` | 17.9 MB |
+| `app-x86_64-release.apk` | 21.5 MB |
 | The brand fonts in the APK | Outfit 600–900, Plus Jakarta Sans 600–800 |
 
 ### The bugs the tests caught
 
 They were real, and they would have shipped:
 
-1. **The bottom navigation was mis-positioned.** `EnnvoBottomNav` returned
-   a `Positioned`, which is a `ParentDataWidget` — it only works as a direct
+1. **The bottom navigation was mis-positioned.** `EnnvoBottomNav` returned a
+   `Positioned`, which is a `ParentDataWidget` — it only works as a direct
    child of a `Stack`. The bar was rendering as an ordinary stack child.
    The bar now returns a plain widget and the shell positions it.
 2. **The sign-up form had two email fields.** The sign-up branch and the
    shared branch both rendered an email and a password field.
 3. **The auth hero overflowed** on a short screen. The showcase column now
    scales down instead of overflowing.
-4. **The sign-in label said "Username or email"** while the web app says
-   "Email address".
+4. **The messages list had no width** on a phone. The row that holds the
+   list and the chat gave the list an unbounded width, and the `Spacer`
+   inside it had nothing to distribute.
+5. **A single tap on a navigation item did nothing.** With both `onTap` and
+   `onDoubleTap` on the same gesture detector, Flutter waits for the
+   double-tap timeout before reporting the tap.
+
+---
+
+## 10. The reels rebuild
+
+The reels screen was rebuilt from scratch against the reels prototype and
+the Ennvo web app.
+
+| File | What it holds |
+|---|---|
+| `lib/features/reels/reels_page.dart` | the feed, the tabs, the progress bar and the preloading |
+| `lib/features/reels/widgets/reel_video.dart` | the playback window and the poster cross fade |
+| `lib/features/reels/widgets/reel_card.dart` | the layout, the rail, the springs and the activity avatars |
+| `lib/features/reels/widgets/reel_preloader.dart` | the connection warming for the upcoming videos |
+| `lib/features/reels/widgets/comments_sheet.dart` | the comments and the composer above the keyboard |
+| `lib/features/reels/widgets/share_sheet.dart` | the people grid and the action tiles |
+
+### The playback window
+
+| Distance from the active reel | What happens |
+|---|---|
+| 0 | plays |
+| 1 | the controller is created and prepared, then held paused |
+| 2 and beyond | the controller is disposed, the decoder is released |
+
+The pause is exact: the position is rewound, so a reel always starts from
+the top when it comes back.
+
+### The preloader
+
+Before the user swipes, the first bytes of the next two videos are fetched
+with a range request. That resolves DNS, completes the TLS handshake and
+warms the CDN edge for those exact URLs, so the player starts from a warm
+path instead of a cold one.
+
+### The comment composer
+
+The sheet carries two composers. A collapsed pill sits at the bottom of the
+list. Tapping it focuses the field, the keyboard opens and a **separate
+composer appears directly above the keyboard** while the list keeps its
+place. The sheet grows upward with the keyboard inset, so the list never
+jumps.
+
 
