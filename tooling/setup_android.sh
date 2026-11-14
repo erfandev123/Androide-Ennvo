@@ -55,15 +55,12 @@ if [ "$TARGET" != "ios" ]; then
     rm -rf "android/app/src/main/kotlin/com/erfan/ennvo"
 
     # -------------------------------------------------------------------------
-    #  The application id — it has to stay `com.erfan.ennvoapp` so the app
-    #  keeps the existing Firebase registration and the push tokens.
+    #  The application id, the signing configuration and the release lint task
+    #  are all applied by one script, so the CI, the local setup and a fresh
+    #  clone stay in sync.
     # -------------------------------------------------------------------------
-    echo "==> Setting the application id to $APPLICATION_ID"
-    for file in android/app/build.gradle.kts android/app/build.gradle; do
-        [ -f "$file" ] || continue
-        perl -pi -e "s/applicationId = \"[^\"]*\"/applicationId = \"$APPLICATION_ID\"/" "$file"
-        perl -pi -e "s/namespace = \"[^\"]*\"/namespace = \"$APPLICATION_ID\"/" "$file"
-    done
+    echo "==> Applying the Gradle customisations"
+    node tooling/patch_gradle.js .
 
     # -------------------------------------------------------------------------
     #  The Google Services configuration.
@@ -101,27 +98,6 @@ if [ "$TARGET" != "ios" ]; then
     if ! grep -q "usesCleartextTraffic" android/app/src/main/AndroidManifest.xml; then
         perl -0pi -e 's|<application|<application\n        android:usesCleartextTraffic="true"|' \
             android/app/src/main/AndroidManifest.xml
-    fi
-
-    # -------------------------------------------------------------------------
-    #  The release lint task.
-    #
-    #  The Kotlin compiler that ships with the Flutter template is not
-    #  compatible with the lint API in AGP 9, and the `lintVitalAnalyzeRelease`
-    #  task fails inside the Firebase plugins with a `NoSuchMethodError`.
-    #  The lint check is not useful for a release build anyway.
-    # -------------------------------------------------------------------------
-    echo "==> Disabling the release lint task"
-    if [ -f android/app/build.gradle.kts ]; then
-        if ! grep -q "checkReleaseBuilds = false" android/app/build.gradle.kts; then
-            perl -0pi -e 's/(\n(\s*)buildTypes \{)/\n$2lint {\n$2    checkReleaseBuilds = false\n$2    abortOnError = false\n$2}\n$1/' \
-                android/app/build.gradle.kts
-        fi
-    elif [ -f android/app/build.gradle ]; then
-        if ! grep -q "checkReleaseBuilds false" android/app/build.gradle; then
-            perl -0pi -e 's/(\n(\s*)buildTypes \{)/\n$2lint {\n$2    checkReleaseBuilds false\n$2    abortOnError false\n$2}\n$1/' \
-                android/app/build.gradle
-        fi
     fi
 
     # -------------------------------------------------------------------------
