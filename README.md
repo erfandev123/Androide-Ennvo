@@ -220,21 +220,25 @@ font.
 
 ## The reels screen
 
-The home screen is a full screen vertical video feed. It follows the reels
-prototype and the Ennvo web app:
+The home screen is a full screen vertical video feed, built to feel like
+TikTok and Instagram.
 
 | Behaviour | Detail |
 |---|---|
-| Playback window | the active reel plays, the neighbour is prepared and paused, everything else is released — at most two live decoders |
-| Double tap | a heart bursts out of the tap point, rises 64px, scales 0.4 → 1.1 and fades over 900ms; the reel is liked |
-| Single tap | plays or pauses, after a 280ms window so the two gestures never fight |
-| Progress bar | tracks the active reel along the bottom edge |
-| Tabs | "Following" and "For you" with a sliding underline |
-| Action rail | like, comment, favourite, share and the spinning vinyl record |
-| Author block | the avatar with a gradient ring, the morphing follow button, the name, the verified mark, the role, the caption with a "See more" toggle, the tags and the scrolling song title |
-| Comments | a bottom sheet with nested replies, expandable reply threads, a two tap delete, an emoji tray and a composer |
-| Share | a bottom sheet with a multi-select people grid, the quick actions and the privacy switch |
-| Seen tracking | a reel counts as seen after 2500ms; the list is capped at 250 and feeds the ranking |
+| **Full screen video** | the video fills the screen edge to edge, no black bars, and the poster cross fades out over the first frame |
+| **Black navigation** | the navigation over the feed is a solid black bar, so it and the screen read as one surface |
+| **Windowed playback** | the active reel plays, the neighbour is prepared and paused, everything else is released — at most two live decoders |
+| **Preloading** | the next videos are warmed with a range request while the current one plays, so the swipe lands on a warm connection |
+| **Infinite feed** | the next page is fetched from the same API the web app uses, three reels before the end |
+| **Double tap** | a heart bursts out of the tap point, rises 64px, scales 0.4 → 1.1 and fades over 900ms; the reel is liked |
+| **Single tap** | plays or pauses, after a 280ms window so the two gestures never fight |
+| **Spring buttons** | the like, the save, the repost and the follow all run on a spring, so a burst of taps never queues up |
+| **Activity avatars** | a like or a repost sends the author's avatar floating to the left, the way Instagram shows an activity |
+| **Action rail** | the author avatar with a gradient ring and a follow badge, then like, comment, repost, favourite, share and the spinning music disc |
+| **Author block** | the handle, the follow button, the role, the caption with a "See more" toggle, the tags and the scrolling song title — all above the navigation |
+| **Comments** | a bottom sheet with nested replies, expandable threads, a two tap delete and an emoji tray. Tapping the input opens the keyboard and a **separate composer appears directly above it**, while the list keeps its place |
+| **Share** | a bottom sheet with a search field, a five across people grid, action tiles and a send button that appears once somebody is picked |
+| **Seen tracking** | a reel counts as seen after 2500ms; the list is capped at 250 and feeds the ranking |
 
 ## The messages screen
 
