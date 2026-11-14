@@ -750,8 +750,35 @@ class _RailButton extends StatefulWidget {
   State<_RailButton> createState() => _RailButtonState();
 }
 
-class _RailButtonState extends State<_RailButton> {
-  bool _popped = false;
+class _RailButtonState extends State<_RailButton>
+    with SingleTickerProviderStateMixin {
+  // A spring, so a burst of taps stays smooth — restarting the animation
+  // never queues up a backlog.
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+
+  late final Animation<double> _pop = Tween<double>(
+    begin: 1,
+    end: 1.28,
+  ).animate(
+    CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    _controller.forward(from: 0).then((_) {
+      if (mounted) _controller.reverse();
+    });
+    HapticFeedback.lightImpact();
+    widget.onTap();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -764,22 +791,13 @@ class _RailButtonState extends State<_RailButton> {
       label: widget.semanticLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          setState(() => _popped = true);
-          HapticFeedback.lightImpact();
-          widget.onTap();
-          Future.delayed(const Duration(milliseconds: 240), () {
-            if (mounted) setState(() => _popped = false);
-          });
-        },
+        onTap: _handleTap,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             // The icon springs rather than snapping.
-            AnimatedScale(
-              scale: _popped ? 1.28 : 1.0,
-              duration: const Duration(milliseconds: 260),
-              curve: EnnvoCurves.iosSpring,
+            ScaleTransition(
+              scale: _pop,
               child: LucideIcon(
                 widget.icon,
                 size: 33,

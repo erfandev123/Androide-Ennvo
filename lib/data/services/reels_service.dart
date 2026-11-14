@@ -83,6 +83,31 @@ class ReelsService {
     }
   }
 
+  /// Loads an older page of reels, so the feed never ends.
+  ///
+  /// The cursor is the creation time of the oldest reel on screen, which
+  /// is the same cursor the web app uses.
+  static Future<List<AppPost>> fetchMore({
+    required DateTime before,
+    int limit = 12,
+  }) async {
+    if (!FirebaseService.isReady) return const [];
+    try {
+      final snapshot = await FirebaseService.firestore
+          .collection('posts')
+          .where('type', isEqualTo: 'reel')
+          .where('createdAt', isLessThan: Timestamp.fromDate(before))
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+      return snapshot.docs
+          .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Sorts reels the way the web app does.
   static List<AppPost> rank(List<AppPost> reels, Set<String> seenIds) {
     final copy = List<AppPost>.of(reels);

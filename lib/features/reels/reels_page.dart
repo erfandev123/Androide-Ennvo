@@ -29,6 +29,7 @@ import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/post.dart';
+import '../../data/services/reels_service.dart';
 import '../../shared/icons/lucide_icons.dart';
 import 'demo_reels.dart';
 import 'models/reel_comment.dart';
@@ -123,11 +124,52 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
         ref.read(prefsProvider).markReelSeen(reel.id);
       }
     });
+
+    // Near the end of the feed the next page is fetched, so the feed never
+    // runs out.
+    if (index >= reels.length - 3) {
+      unawaited(_loadMore(reels));
+    }
   }
 
   /// The video URL of a post.
   static String? _videoUrlOf(AppPost post) =>
       post.media.isNotEmpty ? post.media.first : null;
+
+  /// The reels that are on screen, including the pages that were loaded
+  /// while the user was scrolling.
+  final List<AppPost> _extraReels = <AppPost>[];
+
+  bool _loadingMore = false;
+  bool _hasMore = true;
+
+  /// Loads the next page of reels when the user nears the end.
+  Future<void> _loadMore(List<AppPost> current) async {
+    if (_loadingMore || !_hasMore) return;
+    _loadingMore = true;
+
+    final oldest = current
+        .where((r) => r.createdAt != null)
+        .fold<AppPost?>(null, (a, b) => a == null || b.createdAt!.isBefore(a.createdAt!) ? b : a);
+
+    if (oldest?.createdAt == null) {
+      _loadingMore = false;
+      _hasMore = false;
+      return;
+    }
+
+    final more = await ReelsService.fetchMore(before: oldest!.createdAt!);
+    if (!mounted) return;
+    setState(() {
+      _loadingMore = false;
+      if (more.isEmpty) {
+        _hasMore = false;
+      } else {
+        final known = {...current.map((r) => r.id), ..._extraReels.map((r) => r.id)};
+        _extraReels.addAll(more.where((r) => !known.contains(r.id)));
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -139,8 +181,8 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       loading: () => const _ReelsLoading(),
       error: (_, __) => _buildFeed(context, demoReelsAsPosts()),
       data: (items) {
-        final reels = items.isEmpty ? demoReelsAsPosts() : items;
-        return _buildFeed(context, reels);
+        final base = items.isEmpty ? demoReelsAsPosts() : items;
+        return _buildFeed(context, [...base, ..._extraReels]);
       },
     );
   }
