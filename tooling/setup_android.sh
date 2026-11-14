@@ -127,5 +127,23 @@ GRADLE
 fi
 
 if [ "$TARGET" = "ios" ]; then
+    # -------------------------------------------------------------------------
+    #  The iOS project.
+    #
+    #  Swift Package Manager cannot resolve the current `firebase-ios-sdk`:
+    #  the SDK needs a newer tools version than the runner's Xcode provides.
+    #  With Swift Package Manager switched off the project falls back to
+    #  CocoaPods, which resolves the same pods without that constraint.
+    #
+    #  A Podfile based project is generated when the committed one was
+    #  created with Swift Package Manager.
+    # -------------------------------------------------------------------------
+    echo "==> Preparing the iOS project"
+    if [ ! -f ios/Podfile ]; then
+        rm -rf ios
+        flutter create --platforms=ios --project-name ennvo --org com.erfan --no-pub .
+        git checkout -- lib pubspec.yaml analysis_options.yaml 2>/dev/null || true
+        rm -f test/widget_test.dart
+    fi
     echo "==> iOS project ready"
 fi

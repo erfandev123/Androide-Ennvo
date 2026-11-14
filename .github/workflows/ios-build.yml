@@ -28,13 +28,19 @@ jobs:
       # The runner's default Xcode is used on purpose: pinning an older
       # Xcode breaks the Swift Package Manager resolution of the current
       # Firebase iOS SDK, which needs a newer tools version.
-
+      #
+      # Swift Package Manager is switched off entirely and the project falls
+      # back to CocoaPods, which resolves the same pods without the tools
+      # version constraint.
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.50.0'
           channel: stable
           cache: true
+
+      - name: Disable Swift Package Manager
+        run: flutter config --no-enable-swift-package-manager
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
