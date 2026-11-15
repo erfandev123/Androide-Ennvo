@@ -373,3 +373,17 @@ The feed lost the name of the song: the pill carried an equalizer and
 nothing else. The name and the artist now travel in the same marquee the
 reel uses, and a post that only knows the id of its song gets the name from
 the `songs` collection — the same lookup the web app does.
+
+### Sending a reel to somebody
+
+The share sheet lists the conversations of the user, and a picked reel is
+written into every conversation as a `reel` message with the media of the
+post and its id — the same message the web app writes from
+`SharePortal`. Without a network the sheet falls back to the local list of
+people, the way the rest of the app falls back to its local data.
+
+### A reel that could not be loaded
+
+A video that fails to load shows its poster with a small button in the
+middle: one tap loads it again. The reel is never a black rectangle that
+stays black.

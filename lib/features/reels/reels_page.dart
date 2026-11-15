@@ -29,7 +29,9 @@ import '../../core/providers.dart';
 import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../../data/models/message.dart';
 import '../../data/models/post.dart';
+import '../../data/services/chat_service.dart';
 import '../../data/services/comment_service.dart';
 import '../../data/services/firebase_service.dart';
 import '../../data/services/reels_service.dart';
@@ -563,16 +565,32 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   }
 
   void _openShare(AppPost post) {
-    const targets = [
-      ShareTarget(id: '1', name: 'Arif Hasan', isOnline: true),
-      ShareTarget(id: '2', name: 'Tania Akter'),
-      ShareTarget(id: '3', name: 'Rafi Ahmed'),
-      ShareTarget(id: '4', name: 'Mim', isOnline: true),
-      ShareTarget(id: '5', name: 'Sakib'),
-      ShareTarget(id: '6', name: 'Nabila'),
-      ShareTarget(id: '7', name: 'Tuhin'),
-      ShareTarget(id: '8', name: 'Ritu'),
-    ];
+    // The people are the conversations the user already has, the way the
+    // web app builds its share sheet.
+    final user = ref.read(authControllerProvider).user;
+    final conversations = ref.read(conversationsProvider).value ?? const <Conversation>[];
+
+    final targets = <ShareTarget>[];
+    for (final conversation in conversations) {
+      final otherId = conversation.participantIds.firstWhere(
+        (id) => id != user?.uid,
+        orElse: () => '',
+      );
+      final name = conversation.groupName ??
+          conversation.participantNames[otherId] ??
+          'Someone';
+      final avatar = conversation.groupAvatar ??
+          conversation.participantAvatars[otherId] ??
+          '';
+      targets.add(
+        ShareTarget(id: conversation.id, name: name, avatarUrl: avatar),
+      );
+    }
+
+    // Without a network the sheet still shows somebody to send to.
+    if (targets.isEmpty) {
+      targets.addAll(_demoTargets);
+    }
 
     _suspend();
     showModalBottomSheet<void>(
@@ -582,7 +600,9 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       barrierColor: Colors.black.withValues(alpha: 0.4),
       builder: (_) => ReelShareSheet(
         targets: targets,
-        onSend: (selected) async {},
+        onSend: (selected) async {
+          await _sendReel(post, selected, user?.uid ?? '');
+        },
         onRepost: () {},
         onSave: () {},
         onCopyLink: () async {
@@ -594,6 +614,38 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       ),
     ).whenComplete(_resume);
   }
+
+  /// Sends the reel to the people that were picked.
+  Future<void> _sendReel(
+    AppPost post,
+    List<ShareTarget> selected,
+    String senderId,
+  ) async {
+    final media = post.media.isNotEmpty ? post.media.first : null;
+    for (final target in selected) {
+      await ChatService.sendMessage(
+        conversationId: target.id,
+        messageId: 'local-${DateTime.now().microsecondsSinceEpoch}',
+        senderId: senderId,
+        type: MessageType.reel,
+        content: 'Shared a reel',
+        mediaUrl: media,
+        postId: post.id,
+      );
+    }
+  }
+
+  /// The people of the share sheet when there is no network.
+  static const List<ShareTarget> _demoTargets = [
+    ShareTarget(id: '1', name: 'Arif Hasan', isOnline: true),
+    ShareTarget(id: '2', name: 'Tania Akter'),
+    ShareTarget(id: '3', name: 'Rafi Ahmed', isOnline: true),
+    ShareTarget(id: '4', name: 'Mim', isOnline: true),
+    ShareTarget(id: '5', name: 'Sakib'),
+    ShareTarget(id: '6', name: 'Nabila'),
+    ShareTarget(id: '7', name: 'Tuhin'),
+    ShareTarget(id: '8', name: 'Ritu'),
+  ];
 }
 
 // ============================================================================

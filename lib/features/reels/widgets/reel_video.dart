@@ -20,6 +20,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../shared/icons/lucide_icons.dart';
+
 class ReelVideo extends StatefulWidget {
   const ReelVideo({
     super.key,
@@ -199,6 +201,12 @@ class _ReelVideoState extends State<ReelVideo> {
     }
   }
 
+  /// Loads the video again after a failure.
+  void _retry() {
+    setState(() => _failed = false);
+    unawaited(_prepare());
+  }
+
   void _onTick() {
     final controller = _controller;
     if (controller == null || !mounted) return;
@@ -276,7 +284,42 @@ class _ReelVideoState extends State<ReelVideo> {
       );
     }
 
-    if (_failed || controller == null || !_ready) {
+    if (_failed) {
+      // The video could not be loaded. The reel says so and offers a second
+      // try, instead of showing a black rectangle for ever.
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          _poster(),
+          Center(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _retry,
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.35),
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: const LucideIcon(
+                  LucideIcons.rotateCw,
+                  size: 20,
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (controller == null || !_ready) {
       return _poster();
     }
 
