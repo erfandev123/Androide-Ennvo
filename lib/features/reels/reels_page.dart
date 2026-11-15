@@ -131,14 +131,16 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     final reel = reels[index];
 
     // Warm the connections to the videos that are about to be shown, so the
-    // swipe lands on an already warm path.
+    // swipe lands on an already warm path. How many are warmed follows the
+    // device: a weak phone warms one, a strong one warms three.
+    final device = ref.read(deviceProfileProvider);
     final upcoming = <String?>[];
     for (var i = index + 1; i <= index + 3 && i < reels.length; i++) {
       final next = reels[i];
       final nextDemo = demoReelFor(next.id);
       upcoming.add(nextDemo == null ? _videoUrlOf(next) : null);
     }
-    ReelPreloader.warmAll(upcoming, count: 2);
+    ReelPreloader.warmAll(upcoming, count: device.videoPreloadCount);
 
     // The reel counts as seen after 2500ms of dwell time.
     _dwellTimer = Timer(const Duration(milliseconds: 2500), () {

@@ -27,12 +27,14 @@ const int _warmBytes = 96 * 1024;
 /// A short window before a video is dropped from the warm set.
 const Duration _warmTtl = Duration(seconds: 45);
 
+/// How long the warm request is given to deliver its first chunk.
+const Duration _warmChunkTimeout = Duration(milliseconds: 250);
+
 class ReelPreloader {
   ReelPreloader._();
 
   static final Map<String, DateTime> _warming = <String, DateTime>{};
   static final Map<String, http.Client> _clients = <String, http.Client>{};
-  static final http.Client _fallback = http.Client();
 
   /// Warms the connection to [url].
   ///
@@ -50,16 +52,28 @@ class ReelPreloader {
     try {
       final client = http.Client();
       _clients[url] = client;
+
+      // A range request: the server sends the first bytes and stops. The
+      // full video is never downloaded — that is what the old version did,
+      // and it ate the bandwidth of a phone that is already struggling.
+      final request = http.Request('GET', Uri.parse(url))
+        ..headers['Range'] = 'bytes=0-${_warmBytes - 1}';
+
       client
-          .send(http.Request('GET', Uri.parse(url)))
+          .send(request)
           .then((response) {
-            // Drain the body so the connection can be reused, then close it.
-            response.stream.listen(
+            final subscription = response.stream.listen(
               (_) {},
-              onDone: () => _close(url),
-              onError: (_) => _close(url),
+              onError: (Object _) => _close(url),
               cancelOnError: true,
             );
+
+            // The first chunk is all it takes to resolve the host, complete
+            // the handshake and warm the CDN edge for that exact URL.
+            Timer(_warmChunkTimeout, () async {
+              await subscription.cancel();
+              _close(url);
+            });
           })
           .catchError((Object _) => _close(url));
     } catch (_) {
