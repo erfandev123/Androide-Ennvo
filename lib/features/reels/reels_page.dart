@@ -65,6 +65,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   bool _showWelcome = true;
   String _tab = 'forYou';
 
+  /// The feed is held still — a sheet is open over it, or the app went to
+  /// the background. The video keeps its position and the sound stops.
+  bool _suspended = false;
+
   final Set<String> _liked = <String>{};
   final Set<String> _saved = <String>{};
   final Set<String> _reposted = <String>{};
@@ -103,7 +107,15 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) _dwellTimer?.cancel();
+    if (state == AppLifecycleState.paused) {
+      _dwellTimer?.cancel();
+      // The sound must not follow the app into the background.
+      if (mounted) setState(() => _suspended = true);
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      if (mounted) setState(() => _suspended = false);
+    }
   }
 
   List<AppPost> _currentReels = const [];
@@ -240,6 +252,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                   sharesCount:
                       post.repostsCount + (_reposted.contains(post.id) ? 1 : 0),
                   muted: _muted,
+                  isSuspended: _suspended,
                   onProgress: (value) {
                     // Only the timeline listens to this — the feed itself is
                     // never rebuilt for it.
@@ -372,6 +385,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       () => demoComments(post.id),
     );
 
+    _suspend();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -434,7 +448,17 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
           });
         },
       ),
-    );
+    ).whenComplete(_resume);
+  }
+
+  /// Holds the feed still while a sheet is open over it.
+  void _suspend() {
+    if (mounted) setState(() => _suspended = true);
+  }
+
+  /// Gives the feed back to the user.
+  void _resume() {
+    if (mounted) setState(() => _suspended = false);
   }
 
   void _openShare(AppPost post) {
@@ -449,6 +473,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       ShareTarget(id: '8', name: 'Ritu'),
     ];
 
+    _suspend();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -466,7 +491,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
         },
         onAddStory: () {},
       ),
-    );
+    ).whenComplete(_resume);
   }
 }
 

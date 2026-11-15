@@ -30,6 +30,7 @@ class ReelVideo extends StatefulWidget {
     required this.isActive,
     required this.isNear,
     this.muted = true,
+    this.isSuspended = false,
     this.onProgress,
     this.onReady,
     this.onFailed,
@@ -50,6 +51,14 @@ class ReelVideo extends StatefulWidget {
   final bool isActive;
   final bool isNear;
   final bool muted;
+
+  /// The video is held still without losing its position.
+  ///
+  /// It is used while the app is in the background and while a sheet is
+  /// open over the feed: the sound must stop, but the reel must not start
+  /// over when it comes back.
+  final bool isSuspended;
+
   final ValueChanged<double>? onProgress;
   final VoidCallback? onReady;
   final VoidCallback? onFailed;
@@ -99,6 +108,10 @@ class _ReelVideoState extends State<ReelVideo> {
     }
 
     if (oldWidget.isActive != widget.isActive) {
+      _syncPlayback();
+    }
+
+    if (oldWidget.isSuspended != widget.isSuspended) {
       _syncPlayback();
     }
 
@@ -202,6 +215,14 @@ class _ReelVideoState extends State<ReelVideo> {
       if (!mounted) return;
       final current = _controller;
       if (current == null) return;
+
+      // Suspended means "hold the frame": the video is paused where it is,
+      // and it picks up from the same second when it is released.
+      if (widget.isSuspended) {
+        await current.pause();
+        return;
+      }
+
       if (widget.isActive) {
         await current.play();
       } else {

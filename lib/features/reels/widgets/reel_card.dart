@@ -72,6 +72,7 @@ class ReelCard extends StatefulWidget {
     required this.onOpenComments,
     required this.onOpenShare,
     this.onProgress,
+    this.isSuspended = false,
   });
 
   final AppPost post;
@@ -86,6 +87,11 @@ class ReelCard extends StatefulWidget {
   final int favouritesCount;
   final int sharesCount;
   final bool muted;
+
+  /// The video is held still — the sheet is open, or the app is in the
+  /// background.
+  final bool isSuspended;
+
   final VoidCallback onToggleLike;
   final VoidCallback onToggleSave;
   final VoidCallback onToggleRepost;
@@ -190,6 +196,7 @@ class _ReelCardState extends State<ReelCard> {
             isActive: widget.isActive && !_paused,
             isNear: widget.isNear,
             muted: widget.muted,
+            isSuspended: widget.isSuspended || _paused,
             onProgress: widget.onProgress,
           ),
         ),

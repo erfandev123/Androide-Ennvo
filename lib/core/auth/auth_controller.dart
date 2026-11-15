@@ -47,6 +47,10 @@ class AuthController extends ChangeNotifier {
 
   /// Restores the session from a persisted Firebase Auth token.
   Future<void> restore() async {
+    // The SDK may still be booting: the app starts it in parallel with its
+    // first frame, so the brand splash is on screen while it comes up.
+    await FirebaseService.ensureReady();
+
     if (!FirebaseService.isReady) {
       _status = AuthStatus.signedOut;
       notifyListeners();

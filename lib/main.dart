@@ -44,9 +44,10 @@ Future<void> main() async {
     unawaited(requestSustainedPerformance());
   }
 
-  // 4 — Firebase. A failure here must never stop the app from starting,
-  // so the error is swallowed and the app runs in offline mode.
-  await FirebaseService.initialize();
+  // 4 — Firebase. It boots in parallel with the first frame: the brand
+  // splash is on screen while the SDK comes up, so the app opens at once
+  // instead of waiting for the network.
+  final firebaseReady = FirebaseService.initialize();
 
   runApp(
     ProviderScope(
@@ -57,9 +58,13 @@ Future<void> main() async {
       child: const EnnvoApp(),
     ),
   );
+
+  // A failure here must never stop the app from starting, so the error is
+  // swallowed and the app runs in offline mode.
+  unawaited(firebaseReady);
 }
 
 /// Fire and forget without the `dart:async` import noise.
-void unawaited(Future<void> future) {
-  future.catchError((Object _) {});
+void unawaited(Future<Object?> future) {
+  future.catchError((Object _) => null);
 }

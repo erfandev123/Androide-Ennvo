@@ -25,13 +25,37 @@ class FirebaseService {
   static bool _ready = false;
   static String? _lastError;
 
+  /// The initialisation that is currently running, if any.
+  ///
+  /// The app starts Firebase in parallel with its first frame, so several
+  /// callers can ask for it and they all wait for the same attempt.
+  static Future<bool>? _initialization;
+
   static bool get isReady => _ready;
 
   static String? get lastError => _lastError;
 
   /// Initialises the default Firebase app. Safe to call more than once.
-  static Future<bool> initialize() async {
-    if (_ready) return true;
+  static Future<bool> initialize() {
+    if (_ready) return Future<bool>.value(true);
+    return _initialization ??= _initialize().whenComplete(() {
+      // A failed attempt may be retried later — the network might come back.
+      if (!_ready) _initialization = null;
+    });
+  }
+
+  /// Waits until the SDK is up.
+  ///
+  /// It never throws: a failure leaves the app in its offline mode.
+  static Future<bool> ensureReady() async {
+    try {
+      return await initialize();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<bool> _initialize() async {
     try {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
