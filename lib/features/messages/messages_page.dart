@@ -19,10 +19,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
-import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/message.dart';
+import '../../data/services/chat_service.dart';
 import '../../shared/icons/lucide_icons.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/chat_composer.dart';
@@ -104,33 +104,9 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
         }
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => _ChatScreen(
+            builder: (_) => _ChatRoute(
               conversationId: id,
               title: _nameOf(conversations, id),
-              messages: _messages[id] ?? const [],
-              replyTo: _replyTo,
-              onReply: (message) => setState(() => _replyTo = message),
-              onCancelReply: () => setState(() => _replyTo = null),
-              onSend: (text, replyTo) async {
-                final message = AppMessage(
-                  id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-                  senderId: 'me',
-                  type: MessageType.text,
-                  content: text,
-                  createdAt: DateTime.now(),
-                  status: MessageStatus.seen,
-                  replyTo: replyTo == null
-                      ? null
-                      : ReplyPreview(
-                          id: replyTo.id,
-                          text: replyTo.content,
-                          authorName: 'them',
-                        ),
-                );
-                setState(() {
-                  _messages[id] = [...?_messages[id], message];
-                });
-              },
             ),
           ),
         );
@@ -265,45 +241,97 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
 //  The route covers the whole app, so the navigation bar is not on top of
 //  the conversation: the chat is a page of its own, exactly like it is on
 //  the web.
+//
+//  The messages come live from Firestore. The message that is written is
+//  shown at once and it carries the id of the document, so the copy that
+//  comes back from the server replaces it instead of standing next to it.
 // ============================================================================
-class _ChatScreen extends StatelessWidget {
-  const _ChatScreen({
-    required this.conversationId,
-    required this.messages,
-    required this.replyTo,
-    required this.onReply,
-    required this.onCancelReply,
-    required this.onSend,
-    this.title = 'Chat',
-  });
+class _ChatRoute extends ConsumerStatefulWidget {
+  const _ChatRoute({required this.conversationId, required this.title});
 
   final String conversationId;
-  final List<AppMessage> messages;
-  final AppMessage? replyTo;
-  final ValueChanged<AppMessage> onReply;
-  final VoidCallback onCancelReply;
-  final Future<void> Function(String text, AppMessage? replyTo) onSend;
-
-  /// The name of the person on the other side.
   final String title;
 
   @override
+  ConsumerState<_ChatRoute> createState() => _ChatRouteState();
+}
+
+class _ChatRouteState extends ConsumerState<_ChatRoute> {
+  /// The messages that were written here and did not come back yet.
+  final List<AppMessage> _pending = <AppMessage>[];
+
+  AppMessage? _replyTo;
+
+  @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
+    final asyncMessages = ref.watch(
+      messagesProvider(widget.conversationId),
+    );
+    final live = asyncMessages.value ?? const <AppMessage>[];
+
+    // The live list wins, the messages that are still on their way are
+    // added on top of it.
+    final known = live.map((message) => message.id).toSet();
+    final messages = [
+      ...live,
+      for (final message in _pending)
+        if (!known.contains(message.id)) message,
+    ];
 
     return Scaffold(
-      backgroundColor: t.chatBackground,
+      backgroundColor: context.tokens.chatBackground,
       body: _ChatPane(
-        conversationId: conversationId,
-        title: title,
+        conversationId: widget.conversationId,
+        title: widget.title,
         messages: messages,
-        replyTo: replyTo,
+        replyTo: _replyTo,
         onBack: () => Navigator.of(context).maybePop(),
-        onReply: onReply,
-        onCancelReply: onCancelReply,
-        onSend: onSend,
+        onReply: (message) => setState(() => _replyTo = message),
+        onCancelReply: () => setState(() => _replyTo = null),
+        onSend: _send,
       ),
     );
+  }
+
+  /// Writes a message and shows it right away.
+  Future<void> _send(String text, AppMessage? replyTo) async {
+    final user = ref.read(authControllerProvider).user;
+    final id = 'client-${user?.uid ?? 'me'}-${DateTime.now().microsecondsSinceEpoch}';
+
+    final message = AppMessage(
+      id: id,
+      senderId: user?.uid ?? 'me',
+      type: MessageType.text,
+      content: text,
+      createdAt: DateTime.now(),
+      status: MessageStatus.sending,
+      replyTo: replyTo == null
+          ? null
+          : ReplyPreview(
+              id: replyTo.id,
+              text: replyTo.content,
+              authorName: replyTo.senderId,
+            ),
+    );
+
+    setState(() {
+      _pending.add(message);
+      _replyTo = null;
+    });
+
+    await ChatService.sendMessage(
+      conversationId: widget.conversationId,
+      messageId: id,
+      senderId: user?.uid ?? 'me',
+      type: MessageType.text,
+      content: text,
+      replyTo: message.replyTo,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _pending.removeWhere((pending) => pending.id == id);
+    });
   }
 }
 

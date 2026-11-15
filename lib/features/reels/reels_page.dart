@@ -263,7 +263,6 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                 return const ColoredBox(color: Colors.black);
               }
               final post = reels[index];
-              final demo = demoReelFor(post.id);
 
               return RepaintBoundary(
                 child: ReelCard(

@@ -151,7 +151,6 @@ class _ReelCardState extends State<ReelCard> {
 
   /// Sends a friend's avatar floating to the left.
   void _spawnActivity(String kind) {
-    final demo = demoReelFor(widget.post.id);
     final activity = ReelActivity(
       id: DateTime.now().microsecondsSinceEpoch,
       name: widget.post.authorName,
