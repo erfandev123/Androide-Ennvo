@@ -1,26 +1,27 @@
 // ============================================================================
-//  ENNVO — SHARE SHEET
+//  ENNVO — REEL SHARE SHEET
 //
-//  The share portal of a reel, laid out the way TikTok does it:
+//  Sending a reel to somebody.
 //
-//    • a search field at the top
-//    • a grid of the people the reel can be sent to, five across
-//    • a row of action tiles: copy the link, download, report and more
-//    • a send button that appears once somebody is picked
+//  The sheet is the one from the reels prototype: a night surface, a
+//  centred header, the row of the people on top and the row of the ways to
+//  share below it.
 //
-//  Picking somebody does not close the sheet — the count grows and the
-//  button becomes active, so several people can be picked at once.
+//    • a tap on a person picks them, a second tap sends the reel
+//    • writing a message swaps the options for an input and a send button
+//    • the sheet never covers the screen — it only takes the room it needs
 // ============================================================================
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../../../core/theme/motion.dart';
-import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../shared/icons/lucide_icons.dart';
 
-/// Somebody the reel can be sent to.
+/// The night surface of the sheet — the one the prototype uses.
+const Color _sheet = Color(0xFF18162B);
+const Color _sheetBorder = Color(0x1FFFFFFF);
+const Color _dim = Color(0x8CFFFFFF);
+
 class ShareTarget {
   const ShareTarget({
     required this.id,
@@ -68,87 +69,103 @@ class ReelShareSheet extends StatefulWidget {
 }
 
 class _ReelShareSheetState extends State<ReelShareSheet> {
-  final Set<String> _selected = <String>{};
-  String _query = '';
-  bool _copied = false;
-  bool _saved = false;
+  final TextEditingController _message = TextEditingController();
 
-  List<ShareTarget> get _filtered {
-    if (_query.trim().isEmpty) return widget.targets;
-    final term = _query.trim().toLowerCase();
-    return widget.targets
-        .where((t) => t.name.toLowerCase().contains(term))
+  /// The people that are picked.
+  final Set<String> _selected = <String>{};
+
+  @override
+  void dispose() {
+    _message.dispose();
+    super.dispose();
+  }
+
+  void _toggle(ShareTarget target) {
+    setState(() {
+      if (!_selected.remove(target.id)) _selected.add(target.id);
+    });
+  }
+
+  Future<void> _send() async {
+    final picked = widget.targets
+        .where((target) => _selected.contains(target.id))
         .toList();
+    if (picked.isEmpty) return;
+    await widget.onSend(picked);
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
     final media = MediaQuery.of(context);
-    final hasSelection = _selected.isNotEmpty;
+    final keyboard = media.viewInsets.bottom;
+    final hasMessage = _message.text.trim().isNotEmpty;
 
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: media.size.height * 0.78),
-      child: Container(
-        decoration: BoxDecoration(
-          color: t.isDark ? const Color(0xFF0C121E) : Colors.white,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppRadius.sheet),
-          ),
-          border: Border.all(
-            color: t.isDark ? const Color(0x400B4A6A) : const Color(0x40BAE6FD),
-          ),
-        ),
+    // With the keyboard up the sheet takes the whole room and lifts its
+    // lower edge, so the message field stays visible.
+    final available = media.size.height - media.padding.top;
+    final maxHeight = keyboard > 0 ? available : available * 0.7;
+
+    return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      decoration: const BoxDecoration(
+        color: _sheet,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        border: Border(top: BorderSide(color: _sheetBorder)),
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(bottom: keyboard),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // --- the handle ---------------------------------------------
+            // --- the grab handle -----------------------------------------
             Container(
-              width: 40,
+              width: 36,
               height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 10),
+              margin: const EdgeInsets.only(top: 7),
               decoration: BoxDecoration(
-                color: t.isDark
-                    ? const Color(0x66224982)
-                    : const Color(0xFFBAE6FD),
+                color: const Color(0x33FFFFFF),
                 borderRadius: BorderRadius.circular(4),
               ),
             ),
 
-            // --- the header ---------------------------------------------
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
-              child: Row(
+            // --- the header ----------------------------------------------
+            SizedBox(
+              height: 52,
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  const SizedBox(width: 32),
-                  Expanded(
-                    child: Text(
-                      'Send to',
-                      textAlign: TextAlign.center,
-                      style: EnnvoText.bodySemi.copyWith(
-                        color: t.textPrimary,
-                        fontSize: 15,
+                  // The row fills the width of the sheet, so the close
+                  // button can sit in the corner without touching the
+                  // title.
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Send to',
+                        style: EnnvoText.bodySemi.copyWith(
+                          color: Colors.white,
+                          fontSize: 15,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => Navigator.of(context).maybePop(),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: t.isDark
-                            ? const Color(0x330EA5E9)
-                            : const Color(0xFFF0F9FF),
-                        shape: BoxShape.circle,
-                      ),
-                      child: LucideIcon(
-                        LucideIcons.x,
-                        size: 16,
-                        strokeWidth: 2.2,
-                        color: t.isDark
-                            ? const Color(0xFF7DD3FC)
-                            : const Color(0xFF0369A1),
+                  Positioned(
+                    right: 6,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => Navigator.of(context).maybePop(),
+                      child: const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: Center(
+                          child: LucideIcon(
+                            LucideIcons.x,
+                            size: 20,
+                            strokeWidth: 2.2,
+                            color: Color(0xE6FFFFFF),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -156,282 +173,187 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
               ),
             ),
 
-            // --- the search ---------------------------------------------
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Container(
-                height: 42,
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: t.isDark ? const Color(0xFF131D31) : const Color(0xFFF0F9FF),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(
-                    color: t.isDark
-                        ? const Color(0x4D0EA5E9)
-                        : const Color(0x4DBAE6FD),
-                  ),
-                ),
+            // --- the people ----------------------------------------------
+            SizedBox(
+              height: 96,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+                itemCount: widget.targets.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 14),
+                itemBuilder: (context, index) {
+                  final target = widget.targets[index];
+                  final isSelected = _selected.contains(target.id);
+
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _toggle(target),
+                    child: SizedBox(
+                      width: 62,
+                      child: Column(
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutBack,
+                            width: 56,
+                            height: 56,
+                            padding: const EdgeInsets.all(2),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected
+                                    ? Colors.white
+                                    : Colors.transparent,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: const Color(0xFF2A2745),
+                                image: target.avatarUrl.isEmpty
+                                    ? null
+                                    : DecorationImage(
+                                        image: NetworkImage(target.avatarUrl),
+                                        fit: BoxFit.cover,
+                                      ),
+                              ),
+                              alignment: Alignment.center,
+                              child: target.avatarUrl.isEmpty
+                                  ? Text(
+                                      target.name.isEmpty
+                                          ? '?'
+                                          : target.name
+                                                .characters
+                                                .first
+                                                .toUpperCase(),
+                                      style: EnnvoText.bodySemi.copyWith(
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            target.name.split(' ').first,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: EnnvoText.tiny.copyWith(
+                              color: _dim,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            const Divider(height: 1, color: _sheetBorder),
+
+            // --- the options, or the message -----------------------------
+            if (hasMessage)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                 child: Row(
                   children: [
-                    LucideIcon(
-                      LucideIcons.search,
-                      size: 16,
-                      strokeWidth: 2.2,
-                      color: t.textTertiary,
+                    Expanded(
+                      child: Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: const Color(0x4DFFFFFF),
+                            width: 1.25,
+                          ),
+                        ),
+                        alignment: Alignment.centerLeft,
+                        child: TextField(
+                          controller: _message,
+                          onChanged: (_) => setState(() {}),
+                          style: EnnvoText.body.copyWith(
+                            color: Colors.white,
+                            fontSize: 14.5,
+                          ),
+                          cursorColor: Colors.white,
+                          decoration: InputDecoration(
+                            isDense: true,
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.zero,
+                            hintText: 'Write a message…',
+                            hintStyle: EnnvoText.body.copyWith(
+                              color: const Color(0x80FFFFFF),
+                              fontSize: 14.5,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        onChanged: (value) =>
-                            setState(() => _query = value),
-                        style: EnnvoText.body.copyWith(
-                          color: t.textPrimary,
-                          fontSize: 13.5,
-                        ),
-                        cursorColor: t.accent,
-                        decoration: InputDecoration(
-                          hintText: 'Search people',
-                          hintStyle: EnnvoText.body.copyWith(
-                            color: t.textTertiary,
-                            fontSize: 13.5,
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _send,
+                      child: Container(
+                        height: 44,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [Color(0xFFFFFFFF), Color(0xFFE2DCFB)],
                           ),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.zero,
-                          isDense: true,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          'Send',
+                          style: EnnvoText.bodySemi.copyWith(
+                            color: const Color(0xFF2C2B4D),
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ),
-
-            // --- the people grid ---------------------------------------
-            Flexible(
-              child: _filtered.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 28),
-                      child: Text(
-                        'No friends found',
-                        style: EnnvoText.caption.copyWith(color: t.textTertiary),
-                      ),
-                    )
-                  : GridView.builder(
-                      shrinkWrap: true,
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 5,
-                            crossAxisSpacing: 10,
-                            mainAxisSpacing: 14,
-                            childAspectRatio: 0.82,
-                          ),
-                      itemCount: _filtered.length,
-                      itemBuilder: (context, index) {
-                        final target = _filtered[index];
-                        final isSelected = _selected.contains(target.id);
-                        return GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            HapticFeedback.lightImpact();
-                            setState(() {
-                              if (!_selected.remove(target.id)) {
-                                _selected.add(target.id);
-                              }
-                            });
-                          },
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Stack(
-                                children: [
-                                  AnimatedContainer(
-                                    duration: EnnvoDurations.dropdown,
-                                    curve: EnnvoCurves.iosSpring,
-                                    width: 50,
-                                    height: 50,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: t.surfaceAlt,
-                                      border: isSelected
-                                          ? Border.all(
-                                              color: const Color(0xFF0EA5E9),
-                                              width: 2.5,
-                                            )
-                                          : null,
-                                      image: target.avatarUrl.isEmpty
-                                          ? null
-                                          : DecorationImage(
-                                              image: NetworkImage(
-                                                target.avatarUrl,
-                                              ),
-                                              fit: BoxFit.cover,
-                                            ),
-                                    ),
-                                    child: target.avatarUrl.isEmpty
-                                        ? Center(
-                                            child: Text(
-                                              target.name.isEmpty
-                                                  ? '?'
-                                                  : target.name
-                                                        .characters
-                                                        .first
-                                                        .toUpperCase(),
-                                              style: EnnvoText.bodySemi
-                                                  .copyWith(
-                                                    color: t.textSecondary,
-                                                  ),
-                                            ),
-                                          )
-                                        : null,
-                                  ),
-                                  if (isSelected)
-                                    const Positioned(
-                                      right: -2,
-                                      bottom: -2,
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          color: Color(0xFF0EA5E9),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Padding(
-                                          padding: EdgeInsets.all(2),
-                                          child: Icon(
-                                            Icons.check,
-                                            size: 11,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                target.name.split(' ').first,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: EnnvoText.tiny.copyWith(
-                                  color: t.textPrimary,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-
-            // --- the action tiles --------------------------------------
-            Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(
-                    color: t.isDark
-                        ? const Color(0x260B4A6A)
-                        : const Color(0x29BAE6FD),
-                  ),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _ActionTile(
-                    icon: LucideIcons.link,
-                    label: _copied ? 'Copied!' : 'Copy link',
-                    active: _copied,
-                    onTap: () {
-                      setState(() => _copied = true);
-                      widget.onCopyLink();
-                      Future.delayed(const Duration(seconds: 2), () {
-                        if (mounted) setState(() => _copied = false);
-                      });
-                    },
-                  ),
-                  _ActionTile(
-                    icon: LucideIcons.repeat,
-                    label: 'Repost',
-                    onTap: widget.onRepost,
-                  ),
-                  _ActionTile(
-                    icon: LucideIcons.download,
-                    label: _saved ? 'Saved!' : 'Save',
-                    active: _saved,
-                    onTap: () {
-                      setState(() => _saved = true);
-                      widget.onSave();
-                    },
-                  ),
-                  _ActionTile(
-                    icon: LucideIcons.plusCircle,
-                    label: 'Story',
-                    onTap: widget.onAddStory,
-                  ),
-                  if (widget.onReport != null)
-                    _ActionTile(
-                      icon: LucideIcons.flag,
-                      label: 'Report',
-                      danger: true,
-                      onTap: widget.onReport!,
-                    )
-                  else if (widget.onDelete != null)
-                    _ActionTile(
-                      icon: LucideIcons.trash2,
-                      label: 'Delete',
-                      danger: true,
-                      onTap: widget.onDelete!,
-                    ),
-                ],
-              ),
-            ),
-
-            // --- the send button ---------------------------------------
-            if (hasSelection)
+              )
+            else
               Padding(
-                padding: EdgeInsets.fromLTRB(
-                  16,
-                  0,
-                  16,
-                  MediaQuery.paddingOf(context).bottom + 14,
-                ),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () async {
-                    final selected = widget.targets
-                        .where((target) => _selected.contains(target.id))
-                        .toList();
-                    await widget.onSend(selected);
-                    if (context.mounted) Navigator.of(context).maybePop();
-                  },
-                  child: Container(
-                    height: 46,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF38BDF8), Color(0xFF2563EB)],
-                      ),
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x400EA5E9),
-                          blurRadius: 12,
-                          offset: Offset(0, 5),
-                        ),
-                      ],
+                padding: const EdgeInsets.fromLTRB(8, 10, 8, 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _ShareOption(
+                      icon: LucideIcons.plusCircle,
+                      label: 'Add story',
+                      onTap: widget.onAddStory,
                     ),
-                    child: Text(
-                      'Send (${_selected.length})',
-                      style: EnnvoText.bodySemi.copyWith(
-                        color: Colors.white,
-                        fontSize: 14,
-                      ),
+                    _ShareOption(
+                      icon: LucideIcons.link,
+                      label: 'Copy link',
+                      onTap: widget.onCopyLink,
                     ),
-                  ),
+                    _ShareOption(
+                      icon: LucideIcons.messageCircle,
+                      label: 'Messenger',
+                      onTap: _send,
+                    ),
+                    _ShareOption(
+                      icon: LucideIcons.repeat2,
+                      label: 'Repost',
+                      onTap: widget.onRepost,
+                    ),
+                    _ShareOption(
+                      icon: LucideIcons.bookmark,
+                      label: 'Save',
+                      onTap: widget.onSave,
+                    ),
+                  ],
                 ),
               ),
           ],
@@ -441,75 +363,49 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
   }
 }
 
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({
+// ============================================================================
+//  One of the ways to share
+// ============================================================================
+class _ShareOption extends StatelessWidget {
+  const _ShareOption({
     required this.icon,
     required this.label,
     required this.onTap,
-    this.active = false,
-    this.danger = false,
   });
 
   final String icon;
   final String label;
   final VoidCallback onTap;
-  final bool active;
-  final bool danger;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
-    final color = danger
-        ? const Color(0xFFE11D48)
-        : (active ? const Color(0xFF059669) : t.textPrimary);
-
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: SizedBox(
-        width: 62,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: danger
-                    ? (t.isDark
-                          ? const Color(0x263F1315)
-                          : const Color(0xFFFEF2F2))
-                    : (active
-                          ? (t.isDark
-                                ? const Color(0x2606B6D4)
-                                : const Color(0xFFECFDF5))
-                          : (t.isDark
-                                ? const Color(0xFF131D31)
-                                : Colors.white)),
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-                border: Border.all(
-                  color: danger
-                      ? const Color(0x40FECACA)
-                      : (t.isDark
-                            ? const Color(0x4D0EA5E9)
-                            : const Color(0x4DBAE6FD)),
-                ),
+      child: Semantics(
+        button: true,
+        label: label,
+        child: SizedBox(
+          width: 64,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LucideIcon(
+                icon,
+                size: 26,
+                strokeWidth: 1.8,
+                color: Colors.white.withValues(alpha: 0.92),
               ),
-              alignment: Alignment.center,
-              child: LucideIcon(icon, size: 19, strokeWidth: 2, color: color),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: EnnvoText.tiny.copyWith(
-                color: active ? const Color(0xFF059669) : t.textSecondary,
-                fontSize: 10.5,
+              const SizedBox(height: 7),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: EnnvoText.tiny.copyWith(color: _dim, fontSize: 12),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

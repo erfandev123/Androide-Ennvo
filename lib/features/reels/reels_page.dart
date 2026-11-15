@@ -30,9 +30,10 @@ import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/post.dart';
+import '../../data/services/comment_service.dart';
+import '../../data/services/firebase_service.dart';
 import '../../data/services/reels_service.dart';
 import '../../shared/icons/lucide_icons.dart';
-import '../../shared/widgets/brand_splash.dart';
 import 'demo_reels.dart';
 import 'models/reel_comment.dart';
 import 'widgets/comments_sheet.dart';
@@ -202,11 +203,29 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
         ? ref.watch(followingReelsProvider)
         : ref.watch(reelsProvider);
 
+    // The first feed that arrives is kept, so the next visit to the reels
+    // starts with the real reels instead of the local ones.
+    ref.listen(reelsProvider, (previous, next) {
+      if (!next.hasValue) return;
+      final items = next.value;
+      if (items == null || items.isEmpty) return;
+      if (ref.read(reelsCacheProvider).isEmpty) {
+        ref.read(reelsCacheProvider.notifier).state = items;
+      }
+    });
+
+    // The reels of the last visit — they are on screen while the network is
+    // still answering.
+    final cached = ref.watch(reelsCacheProvider);
+    final fallback = cached.isEmpty ? demoReelsAsPosts() : cached;
+
     return asyncReels.when(
-      loading: () => const _ReelsLoading(),
-      error: (_, __) => _buildFeed(context, demoReelsAsPosts()),
+      // The feed opens with the reels of the last visit, so the page is
+      // never an empty screen while the network is still answering.
+      loading: () => _buildFeed(context, fallback),
+      error: (_, __) => _buildFeed(context, fallback),
       data: (items) {
-        final base = items.isEmpty ? demoReelsAsPosts() : items;
+        final base = items.isEmpty ? fallback : items;
         return _buildFeed(context, [...base, ..._extraReels]);
       },
     );
@@ -216,6 +235,13 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     _currentReels = reels;
     final device = ref.watch(deviceProfileProvider);
     final window = device.reelWindow;
+
+    // The song of the reel on screen — the reel only stores the id, the
+    // name and the artist live in the `songs` collection.
+    final activePost = _activeIndex < reels.length ? reels[_activeIndex] : null;
+    final songId = activePost?.songId;
+    final songAsync = songId == null ? null : ref.watch(songProvider(songId));
+    final song = songAsync != null && songAsync.hasValue ? songAsync.value : null;
 
     return ColoredBox(
       color: Colors.black,
@@ -255,6 +281,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                       post.repostsCount + (_reposted.contains(post.id) ? 1 : 0),
                   muted: _muted,
                   isSuspended: _suspended,
+                  song: index == _activeIndex ? song : null,
                   onProgress: (value) {
                     // Only the timeline listens to this — the feed itself is
                     // never rebuilt for it.
@@ -382,75 +409,147 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   }
 
   void _openComments(AppPost post) {
-    final comments = _comments.putIfAbsent(
-      post.id,
-      () => demoComments(post.id),
-    );
-
     _suspend();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.4),
-      builder: (_) => ReelCommentsSheet(
-        comments: comments,
-        replierName: post.authorName,
-        onSubmit: (text, replyTo) async {
-          final comment = ReelComment(
-            id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-            authorId: 'me',
-            authorName: 'You',
-            authorAvatar: '',
-            kind: CommentKind.text,
-            text: text,
-            createdAt: DateTime.now(),
-            likesCount: 0,
-            isOwn: true,
-            replyToId: replyTo?.id,
-            replyToName: replyTo?.authorName,
+      builder: (_) => Consumer(
+        builder: (context, ref, _) {
+          // The comments of the reel come live from Firestore. Until they
+          // answer, the local ones keep the sheet from being empty.
+          final asyncComments = ref.watch(commentsProvider(post.id));
+          final comments = _commentsOf(post, asyncComments);
+
+          return ReelCommentsSheet(
+            comments: comments,
+            replierName: post.authorName,
+            onSubmit: (text, replyTo) async {
+              await _addComment(post, text, replyTo);
+            },
+            onToggleLike: (comment) {
+              _toggleCommentLike(post, comment);
+            },
+            onDelete: (comment) {
+              _deleteComment(post, comment);
+            },
           );
-          setState(() {
-            if (replyTo != null) {
-              _comments[post.id] = [
-                for (final existing in comments)
-                  if (existing.id == replyTo.id)
-                    existing.copyWith(
-                      replies: [...existing.replies, comment],
-                    )
-                  else
-                    existing,
-              ];
-            } else {
-              _comments[post.id] = [comment, ...comments];
-            }
-          });
-        },
-        onToggleLike: (comment) {
-          setState(() {
-            _comments[post.id] = [
-              for (final existing in comments)
-                if (existing.id == comment.id)
-                  existing.copyWith(
-                    isLiked: !existing.isLiked,
-                    likesCount:
-                        existing.likesCount + (existing.isLiked ? -1 : 1),
-                  )
-                else
-                  existing,
-            ];
-          });
-        },
-        onDelete: (comment) {
-          setState(() {
-            _comments[post.id] = [
-              for (final existing in comments)
-                if (existing.id != comment.id) existing,
-            ];
-          });
         },
       ),
     ).whenComplete(_resume);
+  }
+
+  /// The comments that are shown in the sheet.
+  ///
+  /// The local ones are the answer while the network is still thinking and
+  /// when the app is offline; the live ones take over as soon as they are
+  /// there.
+  List<ReelComment> _commentsOf(
+    AppPost post,
+    AsyncValue<List<ReelComment>> asyncComments,
+  ) {
+    final local = _comments.putIfAbsent(post.id, () => demoComments(post.id));
+    if (!FirebaseService.isReady) return local;
+    if (asyncComments.isLoading) return local;
+    final live = asyncComments.value;
+    if (live == null || live.isEmpty) return local;
+    return live;
+  }
+
+  /// Writes a comment — or a reply — and shows it at once.
+  Future<void> _addComment(AppPost post, String text, ReelComment? replyTo) async {
+    final user = ref.read(authControllerProvider).user;
+
+    final written = await CommentService.add(
+      postId: post.id,
+      text: text,
+      authorId: user?.uid ?? 'me',
+      authorName: user?.name ?? 'You',
+      authorAvatar: user?.avatar ?? '',
+      parentId: replyTo?.id,
+    );
+
+    // The live list follows the write on its own. Only when the write did
+    // not reach the server the comment is shown here.
+    if (written) return;
+
+    final comment = ReelComment(
+      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      authorId: user?.uid ?? 'me',
+      authorName: user?.name ?? 'You',
+      authorAvatar: user?.avatar ?? '',
+      kind: CommentKind.text,
+      text: text,
+      createdAt: DateTime.now(),
+      likesCount: 0,
+      isOwn: true,
+      replyToId: replyTo?.id,
+      replyToName: replyTo?.authorName,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      final current = _comments[post.id] ?? const <ReelComment>[];
+      if (replyTo != null) {
+        _comments[post.id] = [
+          for (final existing in current)
+            if (existing.id == replyTo.id)
+              existing.copyWith(replies: [...existing.replies, comment])
+            else
+              existing,
+        ];
+      } else {
+        _comments[post.id] = [comment, ...current];
+      }
+    });
+  }
+
+  /// The like on a comment.
+  Future<void> _toggleCommentLike(AppPost post, ReelComment comment) async {
+    final user = ref.read(authControllerProvider).user;
+    if (user == null) return;
+
+    final liked = await CommentService.toggleLike(
+      postId: post.id,
+      commentId: comment.id,
+      userId: user.uid,
+      currentlyLiked: comment.isLiked,
+    );
+    if (liked == null) return;
+
+    if (!mounted) return;
+    setState(() {
+      final current = _comments[post.id] ?? const <ReelComment>[];
+      _comments[post.id] = [
+        for (final existing in current)
+          if (existing.id == comment.id)
+            existing.copyWith(
+              isLiked: liked,
+              likesCount: existing.likesCount + (liked ? 1 : -1),
+            )
+          else
+            existing,
+      ];
+    });
+  }
+
+  /// Removes a comment.
+  Future<void> _deleteComment(AppPost post, ReelComment comment) async {
+    final removed = await CommentService.delete(
+      postId: post.id,
+      commentId: comment.id,
+    );
+    if (!removed) return;
+
+    if (!mounted) return;
+    setState(() {
+      final current = _comments[post.id] ?? const <ReelComment>[];
+      _comments[post.id] = [
+        for (final existing in current)
+          if (existing.id != comment.id) existing,
+      ];
+    });
   }
 
   /// Holds the feed still while a sheet is open over it.
@@ -850,34 +949,6 @@ class _WelcomeOverlay extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _ReelsLoading extends StatelessWidget {
-  const _ReelsLoading();
-
-  @override
-  Widget build(BuildContext context) {
-    // The first videos are still on the wire, so the page shows the brand
-    // mark instead of a flat black rectangle.
-    return const ColoredBox(
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 0.9,
-                colors: [Color(0x331D4ED8), Color(0x00000000)],
-              ),
-            ),
-          ),
-          Center(child: EnnvoBrandMark(size: 92)),
-        ],
       ),
     );
   }

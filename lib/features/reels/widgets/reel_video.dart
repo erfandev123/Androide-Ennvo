@@ -27,6 +27,7 @@ class ReelVideo extends StatefulWidget {
     this.assetPath,
     this.posterAsset,
     this.posterUrl,
+    this.imageUrl,
     required this.isActive,
     required this.isNear,
     this.muted = true,
@@ -47,6 +48,12 @@ class ReelVideo extends StatefulWidget {
 
   /// A remote poster image.
   final String? posterUrl;
+
+  /// A picture instead of a video.
+  ///
+  /// A post in the reels feed may carry a photo — handing it to the video
+  /// player is what left the feed with a black rectangle.
+  final String? imageUrl;
 
   final bool isActive;
   final bool isNear;
@@ -146,6 +153,14 @@ class _ReelVideoState extends State<ReelVideo> {
   }
 
   Future<void> _prepare() async {
+    // A picture needs no decoder — it is on screen as soon as it is
+    // downloaded.
+    if (widget.imageUrl != null) {
+      if (mounted) setState(() => _ready = true);
+      widget.onReady?.call();
+      return;
+    }
+
     final url = widget.url;
     final asset = widget.assetPath;
     if (url == null && asset == null) {
@@ -158,9 +173,9 @@ class _ReelVideoState extends State<ReelVideo> {
       final controller = asset != null
           ? VideoPlayerController.asset(asset)
           : VideoPlayerController.networkUrl(
-              Uri.parse(url!),
+              Uri.parse(url ?? ''),
               videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-              formatHint: ReelVideo.formatHintFor(url!),
+              formatHint: ReelVideo.formatHintFor(url ?? ''),
             );
 
       _controller = controller;
@@ -244,6 +259,22 @@ class _ReelVideoState extends State<ReelVideo> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+
+    // --- a picture post --------------------------------------------
+    final imageUrl = widget.imageUrl;
+    if (imageUrl != null) {
+      return Image.network(
+        imageUrl,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        errorBuilder: (_, __, ___) => _poster(),
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return _poster();
+        },
+      );
+    }
 
     if (_failed || controller == null || !_ready) {
       return _poster();

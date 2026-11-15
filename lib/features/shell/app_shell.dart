@@ -57,18 +57,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final showNav =
         _withBottomNav.contains(nav.currentPage) && !keyboardOpen;
-    final openConversation = ref.watch(openConversationProvider);
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        // A chat that is open inside the messages page closes first — the
-        // system back gesture never leaves the app with a chat on screen.
-        if (nav.currentPage == AppPage.messages && openConversation != null) {
-          ref.read(openConversationProvider.notifier).state = null;
-          return;
-        }
         if (nav.canGoBack) {
           nav.backPage();
         }
@@ -110,15 +103,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   /// Handles a tap on a navigation destination.
-  ///
-  /// Tapping the inbox while a conversation is open goes back to the
-  /// conversation list, the way every messenger does it.
   void _onSelectTab(AppPage page) {
-    final nav = ref.read(navControllerProvider);
-    if (page == AppPage.messages) {
-      ref.read(openConversationProvider.notifier).state = null;
-    }
-    nav.setCurrentPage(page);
+    ref.read(navControllerProvider).setCurrentPage(page);
   }
 }
 

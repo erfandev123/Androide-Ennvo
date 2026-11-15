@@ -24,11 +24,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/theme/motion.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/post.dart';
+import '../../../data/models/song.dart';
 import '../../../shared/icons/lucide_icons.dart';
+import '../../../shared/widgets/song_marquee.dart';
 import '../demo_reels.dart';
 import 'reel_video.dart';
 
@@ -73,6 +74,7 @@ class ReelCard extends StatefulWidget {
     required this.onOpenShare,
     this.onProgress,
     this.isSuspended = false,
+    this.song,
   });
 
   final AppPost post;
@@ -91,6 +93,9 @@ class ReelCard extends StatefulWidget {
   /// The video is held still — the sheet is open, or the app is in the
   /// background.
   final bool isSuspended;
+
+  /// The song of the reel, looked up in the `songs` collection.
+  final AppSong? song;
 
   final VoidCallback onToggleLike;
   final VoidCallback onToggleSave;
@@ -170,8 +175,8 @@ class _ReelCardState extends State<ReelCard> {
     final demo = demoReelFor(widget.post.id);
     final caption = demo?.caption ?? widget.post.text;
     final tags = demo?.tags ?? '';
-    final songTitle = demo?.songTitle ?? (widget.post.songTitle ?? '');
-    final songArtist = demo?.songArtist ?? (widget.post.songArtist ?? '');
+    final songTitle = widget.song?.title ?? demo?.songTitle ?? (widget.post.songTitle ?? '');
+    final songArtist = widget.song?.artist ?? demo?.songArtist ?? (widget.post.songArtist ?? '');
     final authorName = widget.post.authorName;
     final authorHandle =
         widget.post.authorUsername ?? authorName.toLowerCase();
@@ -185,14 +190,13 @@ class _ReelCardState extends State<ReelCard> {
           behavior: HitTestBehavior.opaque,
           onTapUp: (details) => _handleTap(details.localPosition),
           child: ReelVideo(
-            url: demo == null
-                ? (widget.post.media.isNotEmpty
-                      ? widget.post.media.first
-                      : null)
-                : null,
+            url: demo == null ? widget.post.videoUrl : null,
             assetPath: demo?.videoAsset,
             posterAsset: demo?.posterAsset,
             posterUrl: widget.post.thumbnailUrl,
+            imageUrl: demo == null && widget.post.mediaIsImage
+                ? widget.post.media.first
+                : null,
             isActive: widget.isActive && !_paused,
             isNear: widget.isNear,
             muted: widget.muted,
@@ -280,27 +284,40 @@ class _ReelCardState extends State<ReelCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // --- the handle and the follow button ---
+              // --- the picture, the follow badge and the handle ------
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Flexible(
-                    child: Text(
-                      '@$authorHandle',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: EnnvoText.bodySemi.copyWith(
-                        color: Colors.white,
-                        fontSize: 15.5,
-                        shadows: const [
-                          Shadow(color: Color(0xB3000000), blurRadius: 6),
-                        ],
-                      ),
-                    ),
+                  _AuthorBadge(
+                    avatarUrl: widget.post.authorAvatar,
+                    name: authorName,
+                    isFollowing: widget.isFollowing,
+                    onToggleFollow: widget.onToggleFollow,
                   ),
                   const SizedBox(width: 10),
-                  _FollowPill(
-                    isFollowing: widget.isFollowing,
-                    onTap: widget.onToggleFollow,
+                  Flexible(
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            '@$authorHandle',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: EnnvoText.bodySemi.copyWith(
+                              color: Colors.white,
+                              fontSize: 15.5,
+                              shadows: const [
+                                Shadow(color: Color(0xB3000000), blurRadius: 6),
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (!widget.isFollowing) ...[
+                          const SizedBox(width: 8),
+                          _FollowChip(onTap: widget.onToggleFollow),
+                        ],
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -381,7 +398,10 @@ class _ReelCardState extends State<ReelCard> {
                 // without the boundary it would repaint the whole reel with
                 // it.
                 RepaintBoundary(
-                  child: _SongMarquee(title: songTitle, artist: songArtist),
+                  child: EnnvoSongMarquee(
+                    title: songTitle,
+                    artist: songArtist,
+                  ),
                 ),
               ],
             ],
@@ -397,13 +417,6 @@ class _ReelCardState extends State<ReelCard> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _RailAvatar(
-                avatarUrl: widget.post.authorAvatar,
-                name: authorName,
-                isFollowing: widget.isFollowing,
-                onTapFollow: widget.onToggleFollow,
-              ),
-              const SizedBox(height: 18),
               _RailButton(
                 icon: LucideIcons.heart,
                 filled: widget.isLiked,
@@ -456,7 +469,8 @@ class _ReelCardState extends State<ReelCard> {
               // The disc spins forever too, so it gets its own boundary.
               RepaintBoundary(
                 child: _VinylDisc(
-                  avatarUrl: widget.post.authorAvatar,
+                  avatarUrl:
+                      widget.song?.thumbnail ?? widget.post.authorAvatar,
                   playing: widget.isActive && !_paused,
                   onTap: widget.onToggleMute,
                 ),
@@ -560,122 +574,30 @@ class _ActivityAvatar extends StatelessWidget {
 }
 
 // ============================================================================
-//  The follow button next to the handle
+//  The picture of the author, with the follow badge on it
 // ============================================================================
-class _FollowPill extends StatefulWidget {
-  const _FollowPill({required this.isFollowing, required this.onTap});
-
-  final bool isFollowing;
-  final VoidCallback onTap;
-
-  @override
-  State<_FollowPill> createState() => _FollowPillState();
-}
-
-class _FollowPillState extends State<_FollowPill>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 420),
-  );
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _handleTap() {
-    // A soft spring, so the button never snaps.
-    _controller.forward(from: 0);
-    HapticFeedback.lightImpact();
-    widget.onTap();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _handleTap,
-      child: ScaleTransition(
-        scale: Tween<double>(begin: 1, end: 1.12).animate(
-          CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-        ),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: EnnvoCurves.iosSpring,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: widget.isFollowing
-                ? Colors.white.withValues(alpha: 0.22)
-                : const Color(0xFFFE2C55),
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(
-              color: widget.isFollowing
-                  ? Colors.white.withValues(alpha: 0.45)
-                  : Colors.transparent,
-              width: 1,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.isFollowing)
-                const LucideIcon(
-                  LucideIcons.check,
-                  size: 12,
-                  strokeWidth: 3,
-                  color: Colors.white,
-                )
-              else
-                const LucideIcon(
-                  LucideIcons.plus,
-                  size: 12,
-                  strokeWidth: 3,
-                  color: Colors.white,
-                ),
-              const SizedBox(width: 4),
-              Text(
-                widget.isFollowing ? 'Following' : 'Follow',
-                style: EnnvoText.tiny.copyWith(
-                  color: Colors.white,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-//  The avatar at the top of the action rail
-// ============================================================================
-class _RailAvatar extends StatelessWidget {
-  const _RailAvatar({
+class _AuthorBadge extends StatelessWidget {
+  const _AuthorBadge({
     required this.avatarUrl,
     required this.name,
     required this.isFollowing,
-    required this.onTapFollow,
+    required this.onToggleFollow,
   });
 
   final String avatarUrl;
   final String name;
   final bool isFollowing;
-  final VoidCallback onTapFollow;
+  final VoidCallback onToggleFollow;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+    return Stack(
+      clipBehavior: Clip.none,
       children: [
         Container(
-          width: 46,
-          height: 46,
-          padding: const EdgeInsets.all(1.6),
+          width: 50,
+          height: 50,
+          padding: const EdgeInsets.all(2),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: const LinearGradient(
@@ -712,36 +634,79 @@ class _RailAvatar extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        // The follow badge under the avatar.
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: onTapFollow,
-          child: Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isFollowing ? Colors.white : const Color(0xFFFE2C55),
-              border: Border.all(color: Colors.black, width: 1.6),
+        // --- the follow badge ----------------------------------------
+        Positioned(
+          bottom: -3,
+          right: -3,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onToggleFollow,
+            child: Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isFollowing ? Colors.white : const Color(0xFFFE2C55),
+                border: Border.all(color: Colors.black, width: 1.8),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x73000000), blurRadius: 8),
+                ],
+              ),
+              alignment: Alignment.center,
+              child: isFollowing
+                  ? const LucideIcon(
+                      LucideIcons.check,
+                      size: 12,
+                      strokeWidth: 3.4,
+                      color: Color(0xFF111111),
+                    )
+                  : const LucideIcon(
+                      LucideIcons.plus,
+                      size: 13,
+                      strokeWidth: 3.2,
+                      color: Colors.white,
+                    ),
             ),
-            alignment: Alignment.center,
-            child: isFollowing
-                ? const LucideIcon(
-                    LucideIcons.check,
-                    size: 10,
-                    strokeWidth: 3.4,
-                    color: Color(0xFF111111),
-                  )
-                : const LucideIcon(
-                    LucideIcons.plus,
-                    size: 10,
-                    strokeWidth: 3.4,
-                    color: Colors.white,
-                  ),
           ),
         ),
       ],
+    );
+  }
+}
+
+// ============================================================================
+//  The small "Follow" chip next to the handle
+// ============================================================================
+class _FollowChip extends StatelessWidget {
+  const _FollowChip({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFE2C55),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          boxShadow: const [
+            BoxShadow(color: Color(0x59FE2C55), blurRadius: 10, offset: Offset(0, 3)),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: const Text(
+          'Follow',
+          style: TextStyle(
+            fontFamily: 'PlusJakartaSans',
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -935,109 +900,6 @@ class _VinylDiscState extends State<_VinylDisc>
                 : null,
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-//  The scrolling song title
-// ============================================================================
-class _SongMarquee extends StatefulWidget {
-  const _SongMarquee({required this.title, required this.artist});
-
-  final String title;
-  final String artist;
-
-  @override
-  State<_SongMarquee> createState() => _SongMarqueeState();
-}
-
-class _SongMarqueeState extends State<_SongMarquee>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 9),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final label = widget.artist.isEmpty
-        ? widget.title
-        : '${widget.title} · ${widget.artist}';
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 6, 14, 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.5),
-          width: 1.2,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const LucideIcon(
-            LucideIcons.music,
-            size: 15,
-            strokeWidth: 1.7,
-            color: Colors.white,
-          ),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 140,
-            height: 18,
-            child: ShaderMask(
-              shaderCallback: (bounds) => const LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  Colors.transparent,
-                  Colors.black,
-                  Colors.black,
-                  Colors.transparent,
-                ],
-                stops: [0, 0.08, 0.92, 1],
-              ).createShader(bounds),
-              blendMode: BlendMode.dstIn,
-              child: OverflowBox(
-                alignment: Alignment.centerLeft,
-                maxWidth: double.infinity,
-                child: AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, _) {
-                    return Row(
-                      children: [
-                        for (var i = 0; i < 2; i++)
-                          Text(
-                            '$label      ',
-                            style: EnnvoText.caption.copyWith(
-                              color: Colors.white,
-                              fontSize: 12.5,
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -38,6 +38,11 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
   /// The message the user is replying to.
   AppMessage? _replyTo;
 
+  /// The conversation that is open in the wide layout.
+  ///
+  /// On a phone the conversation opens as its own page instead.
+  String? _activeConversationId;
+
   double _sidebarWidth = 440;
   bool _draggingDivider = false;
 
@@ -51,9 +56,6 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     final conversations = (loaded == null || loaded.isEmpty)
         ? _demoConversations()
         : loaded;
-    // The open conversation lives in a provider, so the app shell can route
-    // the system back gesture to it.
-    final active = ref.watch(openConversationProvider);
     final isWide = _isWide(context);
 
     // The floating navigation bar sits over the bottom of the page, so the
@@ -92,19 +94,57 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
 
     final list = _ConversationList(
       conversations: conversations,
-      onOpen: (id) =>
-          ref.read(openConversationProvider.notifier).state = id,
+      onOpen: (id) {
+        // On a phone the conversation opens as its own page: it covers the
+        // app, so the navigation bar does not sit on top of the chat — the
+        // way the web app hides it while a chat is open.
+        if (_isWide(context)) {
+          setState(() => _activeConversationId = id);
+          return;
+        }
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => _ChatScreen(
+              conversationId: id,
+              title: _nameOf(conversations, id),
+              messages: _messages[id] ?? const [],
+              replyTo: _replyTo,
+              onReply: (message) => setState(() => _replyTo = message),
+              onCancelReply: () => setState(() => _replyTo = null),
+              onSend: (text, replyTo) async {
+                final message = AppMessage(
+                  id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+                  senderId: 'me',
+                  type: MessageType.text,
+                  content: text,
+                  createdAt: DateTime.now(),
+                  status: MessageStatus.seen,
+                  replyTo: replyTo == null
+                      ? null
+                      : ReplyPreview(
+                          id: replyTo.id,
+                          text: replyTo.content,
+                          authorName: 'them',
+                        ),
+                );
+                setState(() {
+                  _messages[id] = [...?_messages[id], message];
+                });
+              },
+            ),
+          ),
+        );
+      },
     );
 
-    final chat = active == null
+    final chat = _activeConversationId == null
         ? null
         : _ChatPane(
-            conversationId: active,
-            title: _nameOf(conversations, active),
-            messages: _messages[active] ?? const [],
+            conversationId: _activeConversationId!,
+            title: _nameOf(conversations, _activeConversationId!),
+            messages: _messages[_activeConversationId!] ?? const [],
             replyTo: _replyTo,
-            onBack: () =>
-                ref.read(openConversationProvider.notifier).state = null,
+            onBack: () => setState(() => _activeConversationId = null),
             onReply: (message) => setState(() => _replyTo = message),
             onCancelReply: () => setState(() => _replyTo = null),
             onSend: (text, replyTo) async {
@@ -124,7 +164,10 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
                       ),
               );
               setState(() {
-                _messages[active] = [...?_messages[active], message];
+                _messages[_activeConversationId!] = [
+                  ...?_messages[_activeConversationId!],
+                  message,
+                ];
               });
             },
           );
@@ -134,11 +177,11 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
       body: Stack(
         children: [
           ambientGlow,
-          // --- the phone layout: one pane at a time --------------------
+          // --- the phone layout: the conversation list -----------------
           if (!isWide)
             Padding(
               padding: EdgeInsets.only(bottom: navClearance),
-              child: chat ?? list,
+              child: list,
             )
           // --- the wide layout: the list and the chat side by side ------
           else
@@ -214,6 +257,54 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
       updatedAt: DateTime.now().subtract(const Duration(days: 1)),
     ),
   ];
+}
+
+// ============================================================================
+//  The chat page — its own route, pushed over the conversation list
+//
+//  The route covers the whole app, so the navigation bar is not on top of
+//  the conversation: the chat is a page of its own, exactly like it is on
+//  the web.
+// ============================================================================
+class _ChatScreen extends StatelessWidget {
+  const _ChatScreen({
+    required this.conversationId,
+    required this.messages,
+    required this.replyTo,
+    required this.onReply,
+    required this.onCancelReply,
+    required this.onSend,
+    this.title = 'Chat',
+  });
+
+  final String conversationId;
+  final List<AppMessage> messages;
+  final AppMessage? replyTo;
+  final ValueChanged<AppMessage> onReply;
+  final VoidCallback onCancelReply;
+  final Future<void> Function(String text, AppMessage? replyTo) onSend;
+
+  /// The name of the person on the other side.
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+
+    return Scaffold(
+      backgroundColor: t.chatBackground,
+      body: _ChatPane(
+        conversationId: conversationId,
+        title: title,
+        messages: messages,
+        replyTo: replyTo,
+        onBack: () => Navigator.of(context).maybePop(),
+        onReply: onReply,
+        onCancelReply: onCancelReply,
+        onSend: onSend,
+      ),
+    );
+  }
 }
 
 // ============================================================================

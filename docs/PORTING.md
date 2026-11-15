@@ -315,3 +315,61 @@ whole feed. The progress now lives in a `ValueNotifier` that only the
 timeline listens to, and the spinning disc and the scrolling song title got
 their own repaint boundaries — they run forever, and without a boundary they
 repainted the whole reel with them.
+
+## 12. The reels, the comment box and the chat
+
+This round rebuilt the reels screen around the reels prototype and fixed
+the two sheets and the chat.
+
+### The reel
+
+* the picture of the author sits on the **left**, in a ring with the follow
+  badge on it, next to the handle and the follow button
+* the action rail sits on the **right**: like, comment, repost, favourite,
+  share and the spinning disc of the song at the bottom
+* the disc carries the cover of the song when the song was found
+* the name of the song travels in a pill under the caption, in the same
+  marquee the feed uses
+* the page opens with the local reels, and the feed of the last visit is
+  kept in `reelsCacheProvider` — the second visit to the page shows the
+  *real* reels right away
+
+A reel that is a photo is drawn as a photo: `AppPost.mediaIsImage` and
+`AppPost.videoUrl` tell the card what it is holding.
+
+### The comment box
+
+The sheet is the one from the prototype: a night surface, a grab handle, a
+centred header with the count, the list of the comments with their replies,
+and the composer at the bottom.
+
+The composer is the part that used to disappear. The sheet lifts its lower
+edge by the height of the keyboard, so the input is always on screen — and
+the sheet never grows past the room that is left.
+
+The comments are live: `CommentService` reads `posts/{postId}/comments`,
+folds the replies into their comment, writes new ones, toggles the likes
+(`comments/{id}/likes/{userId}`) and removes them. The local comments keep
+the sheet from being empty while the network is still thinking.
+
+### The share box
+
+Same surface, same handle, same header. The row of the people on top, the
+way to share below it: add to story, copy the link, messenger, repost,
+save. Writing a message swaps the options for an input and a send button.
+
+### The chat
+
+The chat is a page of its own again — a full screen route over the app, so
+the navigation bar is *not* on top of the conversation. The back gesture
+closes the chat first and returns to the list.
+
+`openConversationProvider` is gone with it: the shell does not have to know
+what is open, because the route stack does.
+
+### The song in the feed
+
+The feed lost the name of the song: the pill carried an equalizer and
+nothing else. The name and the artist now travel in the same marquee the
+reel uses, and a post that only knows the id of its song gets the name from
+the `songs` collection — the same lookup the web app does.

@@ -20,7 +20,10 @@ import 'package:ennvo/core/storage/app_prefs.dart';
 import 'package:ennvo/core/theme/app_theme.dart';
 import 'package:ennvo/features/auth/auth_page.dart';
 import 'package:ennvo/features/messages/messages_page.dart';
+import 'package:ennvo/features/reels/models/reel_comment.dart';
 import 'package:ennvo/features/reels/reels_page.dart';
+import 'package:ennvo/features/reels/widgets/comments_sheet.dart';
+import 'package:ennvo/features/reels/widgets/share_sheet.dart';
 import 'package:ennvo/features/shell/app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -153,6 +156,72 @@ void main() {
     await expectLater(
       find.byType(MessagesPage),
       matchesGoldenFile('goldens/messages.png'),
+    );
+  });
+
+  testWidgets('the comment sheet', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs();
+    await tester.pumpWidget(
+      _harness(
+        prefs,
+        Scaffold(
+          backgroundColor: Colors.black,
+          body: ReelCommentsSheet(
+            comments: demoComments('demo'),
+            onSubmit: (text, replyTo) async {},
+            onToggleLike: (comment) {},
+            onDelete: (comment) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(ReelCommentsSheet),
+      matchesGoldenFile('goldens/comments_sheet.png'),
+    );
+  });
+
+  testWidgets('the share sheet', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs();
+    await tester.pumpWidget(
+      _harness(
+        prefs,
+        Scaffold(
+          backgroundColor: Colors.black,
+          body: ReelShareSheet(
+            targets: const [
+              ShareTarget(id: '1', name: 'Arif Hasan', isOnline: true),
+              ShareTarget(id: '2', name: 'Tania Akter'),
+              ShareTarget(id: '3', name: 'Rafi Ahmed', isOnline: true),
+              ShareTarget(id: '4', name: 'Mim'),
+              ShareTarget(id: '5', name: 'Nila Rahman'),
+            ],
+            onSend: (selected) async {},
+            onRepost: () {},
+            onSave: () {},
+            onCopyLink: () async {},
+            onAddStory: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(ReelShareSheet),
+      matchesGoldenFile('goldens/share_sheet.png'),
     );
   });
 

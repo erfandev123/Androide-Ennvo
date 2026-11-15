@@ -11,7 +11,7 @@
 //      large plus two stacked, 4+ collapse into a "+N" overlay
 //    • the action row: like, comment, repost, share
 //    • the caption with a "See more..." toggle
-//    • the song pill with an animated equalizer
+//    • the song pill with the name of the song
 //
 //  Interactions:
 //    • double tap likes the post and pops a heart
@@ -19,13 +19,16 @@
 // ============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/providers.dart';
 import '../../../core/theme/motion.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/post.dart';
 import '../../../shared/icons/lucide_icons.dart';
+import '../../../shared/widgets/song_marquee.dart';
 
 class PostCard extends StatefulWidget {
   const PostCard({
@@ -279,10 +282,15 @@ class _PostCardState extends State<PostCard> {
                   semanticLabel: 'Share',
                 ),
                 const Spacer(),
-                if (post.songTitle != null) const _SongPill(),
               ],
             ),
           ),
+
+          // --- song ------------------------------------------------------
+          // The name of the song travels in a pill under the post, the way
+          // the web app writes it. When the post only carries the id of the
+          // song, the name is looked up in the `songs` collection.
+          _SongBlock(post: post),
 
           // --- caption ---------------------------------------------------
           if (post.text.isNotEmpty)
@@ -534,83 +542,55 @@ class _BigTextBackground extends StatelessWidget {
 }
 
 // ============================================================================
-//  The animated equalizer in the song pill
+//  The song of the post
+//
+//  The pill under the post carries the name of the song and the artist, and
+//  the name travels when it does not fit. A post usually keeps the id of
+//  its song — the name is then looked up in the `songs` collection, the
+//  same collection the web app reads.
 // ============================================================================
-class _SongPill extends StatefulWidget {
-  const _SongPill();
+class _SongBlock extends ConsumerWidget {
+  const _SongBlock({required this.post});
+
+  final AppPost post;
 
   @override
-  State<_SongPill> createState() => _SongPillState();
-}
-
-class _SongPillState extends State<_SongPill>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: EnnvoDurations.equalizer,
-  )..repeat();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final t = context.tokens;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                for (var i = 0; i < 4; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 2),
-                    child: _Bar(
-                      progress: (_controller.value + i * 0.25) % 1.0,
-                      color: t.accent,
-                    ),
-                  ),
-              ],
-            );
-          },
+    // The lookup is free when the post has no song: the service answers
+    // straight away without touching the network.
+    final songAsync = ref.watch(songProvider(post.songId ?? ''));
+    final song = songAsync.hasValue ? songAsync.value : null;
+
+    final title = _pick(post.songTitle, song?.title);
+    final artist = _pick(post.songArtist, song?.artist);
+    if (title.isEmpty && artist.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 10),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: EnnvoSongMarquee(
+          title: title.isEmpty ? 'Track' : title,
+          artist: artist,
+          width: 156,
+          textColor: t.textPrimary,
+          iconColor: t.textSecondary,
+          background: t.isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : const Color(0xFFE9EAEE),
+          borderColor: Colors.transparent,
         ),
-        const SizedBox(width: 6),
-        Icon(
-          Icons.music_note_rounded,
-          size: 13,
-          color: t.textSecondary,
-        ),
-      ],
-    );
-  }
-}
-
-/// One bar of the equalizer.
-class _Bar extends StatelessWidget {
-  const _Bar({required this.progress, required this.color});
-
-  final double progress;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    // The bar travels between 4px and 16px, exactly like the CSS keyframe.
-    final height = 4 + (12 * (0.5 - (progress - 0.5).abs()) * 2).clamp(0.0, 1.0);
-    return Container(
-      width: 2.5,
-      height: height.clamp(4.0, 16.0),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(2),
       ),
     );
+  }
+
+  /// The first of the two that has something in it.
+  static String _pick(String? first, String? second) {
+    final a = first?.trim() ?? '';
+    if (a.isNotEmpty) return a;
+    return second?.trim() ?? '';
   }
 }
 

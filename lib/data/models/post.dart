@@ -40,6 +40,7 @@ class AppPost {
     this.status,
     this.location,
     this.taggedUsers = const [],
+    this.mediaTypes = const [],
   });
 
   final String id;
@@ -73,17 +74,48 @@ class AppPost {
   final String? location;
   final List<String> taggedUsers;
 
+  /// The type of every media item — `video` or `image`.
+  ///
+  /// The web app stores it in `mediaDetails`, and it is what tells a photo
+  /// post from a video post when the file name says nothing.
+  final List<String> mediaTypes;
+
   bool get isReel => type == PostType.reel;
 
-  bool get hasVideo =>
-      media.isNotEmpty && _looksLikeVideo(media.first);
+  /// Whether the first media item is a picture rather than a video.
+  ///
+  /// A reel is always a video — that is the rule the web app uses in
+  /// `ReelItem.tsx`. A regular post may carry a photo, and handing a photo
+  /// to the video player is what left the feed with a black rectangle.
+  bool get mediaIsImage {
+    if (type == PostType.reel) return false;
+    if (media.isEmpty) return false;
+    if (mediaTypes.isNotEmpty &&
+        mediaTypes.first.toLowerCase().contains('video')) {
+      return false;
+    }
+    return !_looksLikeVideo(media.first);
+  }
+
+  /// The video of the post, if it has one.
+  String? get videoUrl {
+    if (media.isEmpty) return null;
+    if (mediaIsImage) return null;
+    return media.first;
+  }
 
   static bool _looksLikeVideo(String url) {
     final lower = url.toLowerCase();
-    return lower.endsWith('.mp4') ||
-        lower.endsWith('.webm') ||
-        lower.endsWith('.mov') ||
-        lower.contains('video');
+
+    // The extensions the web app recognises.
+    if (RegExp(r'\.(mp4|webm|mov|m4v|ogg|3gp)($|#|\?)').hasMatch(lower)) {
+      return true;
+    }
+    // Reels are always stored under /reels/.
+    if (lower.contains('/reels/')) return true;
+    // A lot of the media lives behind a path that says "video".
+    if (lower.contains('video')) return true;
+    return false;
   }
 
   factory AppPost.fromFirestore(
@@ -132,6 +164,10 @@ class AppPost {
       location: data['location'] as String?,
       taggedUsers:
           (data['taggedUsers'] as List?)?.whereType<String>().toList() ?? const [],
+      mediaTypes: [
+        for (final detail in (data['mediaDetails'] as List?) ?? const [])
+          if (detail is Map && detail['type'] is String) detail['type'] as String,
+      ],
     );
   }
 

@@ -15,12 +15,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/models/message.dart';
 import '../data/models/notification.dart';
 import '../data/models/post.dart';
+import '../data/models/song.dart';
 import '../data/services/chat_service.dart';
+import '../data/services/comment_service.dart';
 import '../data/services/firebase_service.dart';
 import '../data/services/notification_service.dart';
 import '../data/services/post_service.dart';
 import '../data/services/reels_service.dart';
+import '../data/services/song_service.dart';
 import '../data/services/story_service.dart';
+import '../features/reels/models/reel_comment.dart';
 import 'auth/auth_controller.dart';
 import 'nav/nav_controller.dart';
 import 'perf/device_tier.dart';
@@ -45,14 +49,6 @@ final deviceProfileProvider = Provider<DeviceProfile>((ref) {
 final navControllerProvider = ChangeNotifierProvider<NavController>((ref) {
   return NavController();
 });
-
-/// The conversation that is open on the messages page, if any.
-///
-/// The chat is drawn inside the messages page — not pushed as a route over
-/// the app — so the bottom navigation stays visible and unchanged while the
-/// user is chatting. The shell reads this to route the system back gesture:
-/// it closes the chat first and leaves the app afterwards.
-final openConversationProvider = StateProvider<String?>((ref) => null);
 
 /// Light / dark theme, driven by the persisted preference.
 final themeModeProvider = Provider<ThemeMode>((ref) {
@@ -82,6 +78,34 @@ final navBadgesProvider = Provider<NavBadges>((ref) {
 /// The reels for the "For You" tab.
 final reelsProvider = StreamProvider<List<AppPost>>((ref) {
   return ReelsService.subscribeReels();
+});
+
+/// The comments of a post.
+///
+/// The comments live in `posts/{postId}/comments` — the same place the web
+/// app writes them.
+final commentsProvider = StreamProvider.family<List<ReelComment>, String>((
+  ref,
+  postId,
+) {
+  return CommentService.subscribe(postId);
+});
+
+/// The song of a reel.
+///
+/// The reel only stores the id; the title and the artist live in the
+/// `songs` collection, the same way the web app looks them up.
+final songProvider = FutureProvider.family<AppSong?, String>((ref, songId) {
+  return SongService.fetch(songId);
+});
+
+/// The reels that were on screen last time.
+///
+/// The feed opens with them, so the reels page is never an empty screen
+/// while the network is still answering — and the user sees the *real*
+/// reels right away the second time, instead of the local ones.
+final reelsCacheProvider = StateProvider<List<AppPost>>((ref) {
+  return const <AppPost>[];
 });
 
 /// The reels for the "Following" tab.

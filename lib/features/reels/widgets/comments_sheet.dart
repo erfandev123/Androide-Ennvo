@@ -1,33 +1,42 @@
 // ============================================================================
-//  ENNVO — COMMENTS SHEET
+//  ENNVO — REEL COMMENT SHEET
 //
-//  The comments portal of a reel.
+//  The comments of a reel.
 //
-//  The composer behaves the way TikTok does:
+//  The sheet is the one from the reels prototype: a night surface, a grab
+//  handle, a centred header with the count, the list of the comments and —
+//  at the very bottom — a round composer.
 //
-//    • a collapsed pill sits at the bottom of the sheet
-//    • tapping it opens the keyboard and a **separate composer appears
-//      directly above the keyboard**, while the comment list keeps its place
-//    • the sheet grows upward, so the list never jumps
+//  The composer is the part that used to go missing. The sheet lifts its
+//  lower edge by the height of the keyboard, so the input is always on
+//  screen, and the sheet itself never grows past the room that is left.
 //
-//  The list itself carries the nesting: replies are indented, a thread can
-//  be expanded, a comment can be liked and a comment of your own can be
-//  deleted with a second tap to confirm.
+//    • a tap on a comment asks for a reply
+//    • the reply banner sits right above the composer
+//    • the sticker tray slides in under the list
+//    • the send button lights up as soon as there is something to send
 // ============================================================================
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
-import '../../../core/theme/motion.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../shared/icons/lucide_icons.dart';
 import '../models/reel_comment.dart';
 
-/// The stickers offered by the tray.
+/// The night surface of the sheet — the one the prototype uses.
+const Color _sheet = Color(0xFF18162B);
+const Color _sheetRaised = Color(0xFF221F3A);
+const Color _sheetBorder = Color(0x1FFFFFFF);
+const Color _dim = Color(0x8CFFFFFF);
+const Color _faint = Color(0x59FFFFFF);
+
+/// The emoji the sticker tray offers.
 const List<String> kStickerEmoji = [
-  '😍', '🔥', '😂', '🥹', '👏', '💖',
-  '😎', '🤩', '🙌', '✨', '😭', '🥰',
+  '😂', '😍', '😮', '😢', '🔥', '👏',
+  '🎉', '💯', '❤️', '😎', '🤔', '🙌',
+  '👍', '👀', '✨', '🚀', '💪', '🫶',
+  '🤯', '🥳', '😴', '🤝', '🙏', '💖',
 ];
 
 class ReelCommentsSheet extends StatefulWidget {
@@ -64,7 +73,9 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
   @override
   void initState() {
     super.initState();
-    _focus.addListener(() => setState(() {}));
+    _focus.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -75,6 +86,8 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
   }
 
   bool get _isFocused => _focus.hasFocus;
+
+  bool get _canSend => _input.text.trim().isNotEmpty || _stickerText != null;
 
   Future<void> _submit() async {
     final text = _input.text.trim();
@@ -94,533 +107,236 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
     _focus.unfocus();
   }
 
+  void _onInputChanged(String value) {
+    setState(() {
+      if (value.isEmpty) _stickerText = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
     final media = MediaQuery.of(context);
     final keyboard = media.viewInsets.bottom;
     final count = widget.comments.length;
 
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: media.size.height * 0.86,
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: t.isDark ? const Color(0xFF0C121E) : Colors.white,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppRadius.sheet),
-          ),
-          border: Border.all(
-            color: t.isDark ? const Color(0x400B4A6A) : const Color(0x40BAE6FD),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // --- the grab handle ---------------------------------------
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color: t.isDark
-                    ? const Color(0x66224982)
-                    : const Color(0xFFBAE6FD),
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-
-            // --- the header --------------------------------------------
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
-              decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: t.isDark
-                        ? const Color(0x260B4A6A)
-                        : const Color(0x29BAE6FD),
-                  ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const SizedBox(width: 32),
-                  Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Comments',
-                          style: EnnvoText.bodySemi.copyWith(
-                            color: t.textPrimary,
-                            fontSize: 15,
-                          ),
-                        ),
-                        if (count > 0) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: t.isDark
-                                  ? const Color(0x330EA5E9)
-                                  : const Color(0xFFF0F9FF),
-                              borderRadius: BorderRadius.circular(AppRadius.pill),
-                              border: Border.all(
-                                color: t.isDark
-                                    ? const Color(0x4D0EA5E9)
-                                    : const Color(0x4DB3E6FD),
-                              ),
-                            ),
-                            child: Text(
-                              '$count',
-                              style: EnnvoText.tiny.copyWith(
-                                color: t.isDark
-                                    ? const Color(0xFF7DD3FC)
-                                    : const Color(0xFF0284C7),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => Navigator.of(context).maybePop(),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: t.isDark
-                            ? const Color(0x330EA5E9)
-                            : const Color(0xFFF0F9FF),
-                        shape: BoxShape.circle,
-                      ),
-                      child: LucideIcon(
-                        LucideIcons.x,
-                        size: 16,
-                        strokeWidth: 2.2,
-                        color: t.isDark
-                            ? const Color(0xFF7DD3FC)
-                            : const Color(0xFF0369A1),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // --- the list ----------------------------------------------
-            Flexible(
-              child: widget.comments.isEmpty
-                  ? _EmptyComments()
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      itemCount: widget.comments.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == widget.comments.length) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Center(
-                              child: TextButton(
-                                onPressed: widget.onLoadMore,
-                                child: Text(
-                                  'Load more comments',
-                                  style: EnnvoText.label.copyWith(
-                                    color: const Color(0xFF0284C7),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-                        final comment = widget.comments[index];
-                        return _CommentRow(
-                          comment: comment,
-                          onToggleLike: () => widget.onToggleLike(comment),
-                          onDelete: () => widget.onDelete(comment),
-                          onReply: () {
-                            setState(() => _replyingTo = comment);
-                            _focus.requestFocus();
-                          },
-                        );
-                      },
-                    ),
-            ),
-
-            // --- the sticker tray --------------------------------------
-            if (_showStickers && !_isFocused)
-              Container(
-                height: 104,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: t.isDark ? const Color(0xFF0A0F19) : Colors.white,
-                  border: Border(
-                    top: BorderSide(
-                      color: t.isDark
-                          ? const Color(0x260B4A6A)
-                          : const Color(0x29BAE6FD),
-                    ),
-                  ),
-                ),
-                child: GridView.count(
-                  crossAxisCount: 6,
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  children: [
-                    for (final emoji in kStickerEmoji)
-                      GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onTap: () {
-                          setState(() {
-                            _stickerText = emoji;
-                            _input.text = emoji;
-                          });
-                          _focus.requestFocus();
-                        },
-                        child: Center(
-                          child: Text(
-                            emoji,
-                            style: const TextStyle(fontSize: 26),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-
-            // --- the reply banner --------------------------------------
-            if (_replyingTo != null)
-              Container(
-                margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: t.isDark
-                      ? const Color(0x330EA5E9)
-                      : const Color(0xFFF0F9FF),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(
-                    color: t.isDark
-                        ? const Color(0x330EA5E9)
-                        : const Color(0x40BAE6FD),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Replying to ${_replyingTo!.authorName}',
-                        style: EnnvoText.caption.copyWith(
-                          color: t.isDark
-                              ? const Color(0xFF7DD3FC)
-                              : const Color(0xFF0369A1),
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => setState(() => _replyingTo = null),
-                      child: Text(
-                        'Cancel',
-                        style: EnnvoText.tiny.copyWith(
-                          color: t.isDark
-                              ? const Color(0xFF7DD3FC)
-                              : const Color(0xFF0369A1),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            // --- the collapsed composer --------------------------------
-            if (!_isFocused)
-              _CollapsedComposer(
-                onTap: () => _focus.requestFocus(),
-                onSticker: () => setState(() => _showStickers = !_showStickers),
-                stickerActive: _showStickers,
-                onPhoto: () {},
-              ),
-
-            // --- the focused composer, right above the keyboard ---------
-            if (_isFocused)
-              _FocusedComposer(
-                controller: _input,
-                focusNode: _focus,
-                sending: _sending,
-                onSend: _submit,
-                onSticker: () => setState(() => _showStickers = !_showStickers),
-                onPhoto: () {},
-                onCancelReply: () => setState(() => _replyingTo = null),
-                replyingTo: _replyingTo,
-              ),
-
-            // --- the keyboard inset -------------------------------------
-            // This lifts the whole sheet so the composer sits exactly on
-            // top of the keyboard.
-            SizedBox(height: keyboard),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
-//  The collapsed composer — a pill at the bottom of the list
-// ============================================================================
-class _CollapsedComposer extends StatelessWidget {
-  const _CollapsedComposer({
-    required this.onTap,
-    required this.onSticker,
-    required this.onPhoto,
-    this.stickerActive = false,
-  });
-
-  final VoidCallback onTap;
-  final VoidCallback onSticker;
-  final VoidCallback onPhoto;
-  final bool stickerActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onTap,
-              child: Container(
-                height: 44,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                alignment: Alignment.centerLeft,
-                decoration: BoxDecoration(
-                  color: t.isDark ? const Color(0xFF131D31) : const Color(0xFFF0F9FF),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(
-                    color: t.isDark
-                        ? const Color(0x4D0EA5E9)
-                        : const Color(0x4DBAE6FD),
-                  ),
-                ),
-                child: Text(
-                  'Add a comment...',
-                  style: EnnvoText.body.copyWith(
-                    color: t.textTertiary,
-                    fontSize: 13.5,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          _IconAction(
-            icon: LucideIcons.smile,
-            onTap: onSticker,
-            color: stickerActive
-                ? const Color(0xFFF59E0B)
-                : (t.isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0284C7)),
-          ),
-          const SizedBox(width: 4),
-          _IconAction(
-            icon: LucideIcons.image,
-            onTap: onPhoto,
-            color: t.isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0284C7),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================================
-//  The focused composer — a separate bar right above the keyboard
-// ============================================================================
-class _FocusedComposer extends StatefulWidget {
-  const _FocusedComposer({
-    required this.controller,
-    required this.focusNode,
-    required this.sending,
-    required this.onSend,
-    required this.onSticker,
-    required this.onPhoto,
-    required this.onCancelReply,
-    this.replyingTo,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final bool sending;
-  final VoidCallback onSend;
-  final VoidCallback onSticker;
-  final VoidCallback onPhoto;
-  final VoidCallback onCancelReply;
-  final ReelComment? replyingTo;
-
-  @override
-  State<_FocusedComposer> createState() => _FocusedComposerState();
-}
-
-class _FocusedComposerState extends State<_FocusedComposer> {
-  @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
+    // The sheet may not grow past the room that is left. When the keyboard is
+    // up the sheet takes the whole screen and lifts its lower edge by the
+    // height of the keyboard — the composer then always sits right above
+    // the keyboard, never behind it.
+    final available = media.size.height - media.padding.top;
+    final maxHeight = keyboard > 0
+        ? available
+        : (available * 0.72).clamp(240.0, available);
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 12, 10),
-      decoration: BoxDecoration(
-        color: t.isDark ? const Color(0xFF0C121E) : Colors.white,
-        border: Border(
-          top: BorderSide(
-            color: t.isDark
-                ? const Color(0x260B4A6A)
-                : const Color(0x29BAE6FD),
-          ),
-        ),
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      decoration: const BoxDecoration(
+        color: _sheet,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        border: Border(top: BorderSide(color: _sheetBorder)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (widget.replyingTo != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
+          // --- the grab handle -----------------------------------------
+          Container(
+            width: 36,
+            height: 4,
+            margin: const EdgeInsets.only(top: 7),
+            decoration: BoxDecoration(
+              color: const Color(0x33FFFFFF),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+
+          // --- the header ----------------------------------------------
+          SizedBox(
+            height: 52,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Comments',
+                      style: EnnvoText.bodySemi.copyWith(
+                        color: Colors.white,
+                        fontSize: 15,
+                      ),
+                    ),
+                    if (count > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0x26FFFFFF),
+                          borderRadius: BorderRadius.circular(AppRadius.pill),
+                        ),
+                        child: Text(
+                          '$count',
+                          style: EnnvoText.tiny.copyWith(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                Positioned(
+                  right: 6,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => Navigator.of(context).maybePop(),
+                    child: const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: Center(
+                        child: LucideIcon(
+                          LucideIcons.x,
+                          size: 20,
+                          strokeWidth: 2.2,
+                          color: Color(0xE6FFFFFF),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // --- the reply banner ----------------------------------------
+          if (_replyingTo != null)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0x1AFFFFFF),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
-                      'Replying to ${widget.replyingTo!.authorName}',
-                      style: EnnvoText.caption.copyWith(
-                        color: t.isDark
-                            ? const Color(0xFF7DD3FC)
-                            : const Color(0xFF0369A1),
-                      ),
+                      'Replying to ${_replyingTo!.authorName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: EnnvoText.caption.copyWith(color: _dim),
                     ),
                   ),
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: widget.onCancelReply,
+                    onTap: () => setState(() => _replyingTo = null),
                     child: const LucideIcon(
                       LucideIcons.x,
-                      size: 15,
+                      size: 14,
                       strokeWidth: 2.4,
-                      color: Color(0xFF9CA3AF),
+                      color: _dim,
                     ),
                   ),
                 ],
               ),
             ),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Container(
-                  constraints: const BoxConstraints(minHeight: 46),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: t.isDark
-                        ? const Color(0xFF131D31)
-                        : const Color(0xFFF0F9FF),
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(
-                      color: t.isDark
-                          ? const Color(0x4D0EA5E9)
-                          : const Color(0x4DBAE6FD),
-                    ),
-                  ),
-                  child: TextField(
-                    controller: widget.controller,
-                    focusNode: widget.focusNode,
-                    minLines: 1,
-                    maxLines: 4,
-                    style: EnnvoText.body.copyWith(
-                      color: t.textPrimary,
-                      fontSize: 14,
-                    ),
-                    cursorColor: const Color(0xFF0EA5E9),
-                    textInputAction: TextInputAction.send,
-                    decoration: InputDecoration(
-                      hintText: widget.replyingTo == null
-                          ? 'Add a comment...'
-                          : 'Reply to ${widget.replyingTo!.authorName}...',
-                      hintStyle: EnnvoText.body.copyWith(
-                        color: t.textTertiary,
-                        fontSize: 14,
-                      ),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 13),
-                      isDense: true,
-                    ),
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) => widget.onSend(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              _IconAction(
-                icon: LucideIcons.smile,
-                onTap: widget.onSticker,
-                color: t.isDark
-                    ? const Color(0xFF7DD3FC)
-                    : const Color(0xFF0284C7),
-              ),
-              const SizedBox(width: 4),
-              _IconAction(
-                icon: LucideIcons.image,
-                onTap: widget.onPhoto,
-                color: t.isDark ? const Color(0xFF7DD3FC) : const Color(0xFF0284C7),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.sending ? null : widget.onSend,
-                child: Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF38BDF8), Color(0xFF2563EB)],
-                    ),
-                    shape: BoxShape.circle,
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x400EA5E9),
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  alignment: Alignment.center,
-                  child: widget.sending
-                      ? const SizedBox(
-                          width: 15,
-                          height: 15,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(Colors.white),
+
+          // --- the list ------------------------------------------------
+          Flexible(
+            child: widget.comments.isEmpty
+                ? const _EmptyComments()
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    itemCount: widget.comments.length + 1,
+                    itemBuilder: (context, index) {
+                      if (index == widget.comments.length) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Center(
+                            child: TextButton(
+                              onPressed: widget.onLoadMore,
+                              child: Text(
+                                'Load more comments',
+                                style: EnnvoText.label.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                ),
+                              ),
+                            ),
                           ),
-                        )
-                      : const LucideIcon(
-                          LucideIcons.send,
-                          size: 16,
-                          strokeWidth: 2.2,
-                          color: Colors.white,
-                        ),
-                ),
+                        );
+                      }
+
+                      final comment = widget.comments[index];
+                      return _CommentRow(
+                        comment: comment,
+                        onToggleLike: () => widget.onToggleLike(comment),
+                        onDelete: () => widget.onDelete(comment),
+                        onReply: () {
+                          setState(() => _replyingTo = comment);
+                          _focus.requestFocus();
+                        },
+                      );
+                    },
+                  ),
+          ),
+
+          // --- the sticker tray ----------------------------------------
+          if (_showStickers && !_isFocused)
+            Container(
+              height: 104,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: const BoxDecoration(
+                color: _sheetRaised,
+                border: Border(top: BorderSide(color: _sheetBorder)),
               ),
-            ],
+              child: GridView.count(
+                crossAxisCount: 6,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: [
+                  for (final emoji in kStickerEmoji)
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        setState(() {
+                          _stickerText = emoji;
+                          _input.text = emoji;
+                        });
+                        _focus.requestFocus();
+                      },
+                      child: Center(
+                        child: Text(
+                          emoji,
+                          style: const TextStyle(fontSize: 26),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+
+          // --- the composer ---------------------------------------------
+          // The sheet lifts its lower edge by the height of the keyboard,
+          // so the input is never hidden behind it.
+          Padding(
+            padding: EdgeInsets.only(bottom: keyboard),
+            child: _Composer(
+              controller: _input,
+              focusNode: _focus,
+              stickerActive: _showStickers,
+              canSend: _canSend,
+              sending: _sending,
+              onChanged: _onInputChanged,
+              onSend: _submit,
+              onSticker: () {
+                setState(() => _showStickers = !_showStickers);
+                if (_showStickers) _focus.unfocus();
+              },
+              onPhoto: () {},
+              onMic: () {},
+            ),
           ),
         ],
       ),
@@ -628,27 +344,174 @@ class _FocusedComposerState extends State<_FocusedComposer> {
   }
 }
 
-class _IconAction extends StatelessWidget {
-  const _IconAction({
+// ============================================================================
+//  The composer — a round input with a round send button next to it
+// ============================================================================
+class _Composer extends StatelessWidget {
+  const _Composer({
+    required this.controller,
+    required this.focusNode,
+    required this.stickerActive,
+    required this.canSend,
+    required this.sending,
+    required this.onChanged,
+    required this.onSend,
+    required this.onSticker,
+    required this.onPhoto,
+    required this.onMic,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool stickerActive;
+  final bool canSend;
+  final bool sending;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onSend;
+  final VoidCallback onSticker;
+  final VoidCallback onPhoto;
+  final VoidCallback onMic;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      decoration: const BoxDecoration(
+        color: _sheet,
+        border: Border(top: BorderSide(color: _sheetBorder)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // --- the input -----------------------------------------------
+          Expanded(
+            child: Container(
+              height: 44,
+              padding: const EdgeInsets.only(left: 16, right: 4),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: const Color(0x4DFFFFFF), width: 1.25),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      onChanged: onChanged,
+                      onSubmitted: (_) => onSend(),
+                      textInputAction: TextInputAction.send,
+                      style: EnnvoText.body.copyWith(
+                        color: Colors.white,
+                        fontSize: 14.5,
+                      ),
+                      cursorColor: Colors.white,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                        hintText: 'Add a comment…',
+                        hintStyle: EnnvoText.body.copyWith(
+                          color: const Color(0x80FFFFFF),
+                          fontSize: 14.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                  _ComposerIcon(
+                    icon: LucideIcons.smile,
+                    active: stickerActive,
+                    onTap: onSticker,
+                    semanticLabel: 'Sticker',
+                  ),
+                  _ComposerIcon(
+                    icon: LucideIcons.image,
+                    onTap: onPhoto,
+                    semanticLabel: 'Photo',
+                  ),
+                  _ComposerIcon(
+                    icon: LucideIcons.mic,
+                    onTap: onMic,
+                    semanticLabel: 'Voice',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // --- the send button ------------------------------------------
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: canSend && !sending ? onSend : null,
+            child: Opacity(
+              opacity: canSend ? 1 : 0.35,
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFFFFFFFF), Color(0xFFE2DCFB)],
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: const LucideIcon(
+                  LucideIcons.send,
+                  size: 20,
+                  strokeWidth: 2.2,
+                  color: Color(0xFF2C2B4D),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+//  One of the round buttons inside the input
+// ============================================================================
+class _ComposerIcon extends StatelessWidget {
+  const _ComposerIcon({
     required this.icon,
     required this.onTap,
-    required this.color,
+    required this.semanticLabel,
+    this.active = false,
   });
 
   final String icon;
   final VoidCallback onTap;
-  final Color color;
+  final String semanticLabel;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
+      label: semanticLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(9),
-          child: LucideIcon(icon, size: 19, strokeWidth: 2, color: color),
+        child: Container(
+          width: 34,
+          height: 34,
+          margin: const EdgeInsets.only(left: 2),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: active ? const Color(0x26FFFFFF) : Colors.transparent,
+          ),
+          alignment: Alignment.center,
+          child: LucideIcon(
+            icon,
+            size: 20,
+            strokeWidth: 1.9,
+            color: active ? Colors.white : const Color(0xB3FFFFFF),
+          ),
         ),
       ),
     );
@@ -656,7 +519,7 @@ class _IconAction extends StatelessWidget {
 }
 
 // ============================================================================
-//  One comment, with its replies
+//  One comment
 // ============================================================================
 class _CommentRow extends StatefulWidget {
   const _CommentRow({
@@ -676,365 +539,252 @@ class _CommentRow extends StatefulWidget {
 }
 
 class _CommentRowState extends State<_CommentRow> {
-  bool _showReplies = false;
-  bool _confirmDelete = false;
-
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
     final comment = widget.comment;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(vertical: 7),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _CommentAvatar(
-                name: comment.authorName,
-                url: comment.authorAvatar,
-                size: 32,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            comment.authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: EnnvoText.caption.copyWith(
-                              color: t.textPrimary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '· ${comment.relativeTime}',
-                          style: EnnvoText.tiny.copyWith(
-                            color: t.textTertiary,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    _CommentBody(comment: comment),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: widget.onReply,
-                          child: Text(
-                            'Reply',
-                            style: EnnvoText.tiny.copyWith(
-                              color: t.textTertiary,
-                              fontSize: 10,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () {
-                            if (!_confirmDelete) {
-                              setState(() => _confirmDelete = true);
-                              Future.delayed(
-                                const Duration(seconds: 3),
-                                () {
-                                  if (mounted) {
-                                    setState(() => _confirmDelete = false);
-                                  }
-                                },
-                              );
-                              return;
-                            }
-                            widget.onDelete();
-                          },
-                          child: Text(
-                            _confirmDelete ? 'Confirm?' : 'Delete',
-                            style: EnnvoText.tiny.copyWith(
-                              color: _confirmDelete
-                                  ? const Color(0xFFE11D48)
-                                  : t.textTertiary,
-                              fontSize: 10,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: widget.onToggleLike,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    LucideIcon(
-                      LucideIcons.heart,
-                      size: 15,
-                      strokeWidth: 1.8,
-                      filled: comment.isLiked,
-                      color: comment.isLiked
-                          ? const Color(0xFFEF4444)
-                          : t.textTertiary,
-                    ),
-                    if (comment.likesCount > 0)
-                      Text(
-                        '${comment.likesCount}',
-                        style: EnnvoText.tiny.copyWith(
-                          color: comment.isLiked
-                              ? const Color(0xFFEF4444)
-                              : t.textTertiary,
-                          fontSize: 9.5,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          // --- the replies -------------------------------------------
-          if (comment.replies.isNotEmpty) ...[
-            if (!_showReplies)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => setState(() => _showReplies = true),
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 42, top: 4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 14,
-                        height: 1,
-                        color: t.isDark
-                            ? const Color(0x660EA5E9)
-                            : const Color(0x667DD3FC),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'See ${comment.replies.length} ${comment.replies.length == 1 ? 'reply' : 'replies'}...',
-                        style: EnnvoText.tiny.copyWith(
-                          color: t.isDark
-                              ? const Color(0xFF7DD3FC)
-                              : const Color(0xFF2563EB),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.only(left: 42, top: 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    for (final reply in comment.replies)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _CommentAvatar(
-                              name: reply.authorName,
-                              url: reply.authorAvatar,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          reply.authorName,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: EnnvoText.caption.copyWith(
-                                            color: t.textPrimary,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        '· ${reply.relativeTime}',
-                                        style: EnnvoText.tiny.copyWith(
-                                          color: t.textTertiary,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    reply.text,
-                                    style: EnnvoText.caption.copyWith(
-                                      color: t.textPrimary,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => setState(() => _showReplies = false),
-                      child: Text(
-                        'Hide replies',
-                        style: EnnvoText.tiny.copyWith(
-                          color: t.textSecondary,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+          for (final entry in [comment, ...comment.replies])
+            _CommentLine(
+              comment: entry,
+              isReply: entry != comment,
+              onToggleLike: widget.onToggleLike,
+              onDelete: widget.onDelete,
+              onReply: widget.onReply,
+            ),
         ],
       ),
     );
   }
 }
 
-/// The body of a comment: text, a sticker, a photo or a voice note.
-class _CommentBody extends StatelessWidget {
-  const _CommentBody({required this.comment});
+// ============================================================================
+//  One line of a comment
+// ============================================================================
+class _CommentLine extends StatelessWidget {
+  const _CommentLine({
+    required this.comment,
+    required this.isReply,
+    required this.onToggleLike,
+    required this.onDelete,
+    required this.onReply,
+  });
 
   final ReelComment comment;
+  final bool isReply;
+  final VoidCallback onToggleLike;
+  final VoidCallback onDelete;
+  final VoidCallback onReply;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
+    final size = isReply ? 26.0 : 34.0;
 
-    switch (comment.kind) {
-      case CommentKind.sticker:
-        return Text(comment.text, style: const TextStyle(fontSize: 38));
-      case CommentKind.photo:
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          child: Image.network(
-            comment.mediaUrl ?? '',
-            width: 140,
-            height: 180,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+    return Padding(
+      padding: EdgeInsets.only(left: isReply ? 34 : 0, top: isReply ? 6 : 0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _CommentAvatar(comment: comment, size: size),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        comment.authorName.isEmpty
+                            ? 'Someone'
+                            : comment.authorName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: EnnvoText.caption.copyWith(
+                          color: _dim,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    if (comment.isOwn) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0x1AFFFFFF),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          'You',
+                          style: EnnvoText.tiny.copyWith(
+                            color: _faint,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  comment.text,
+                  style: EnnvoText.body.copyWith(
+                    color: Colors.white,
+                    fontSize: 14.5,
+                    height: 1.45,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    // --- the like -----------------------------------------
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onToggleLike,
+                      child: Semantics(
+                        button: true,
+                        label: 'Like the comment',
+                        child: Row(
+                          children: [
+                            LucideIcon(
+                              LucideIcons.heart,
+                              size: 15,
+                              strokeWidth: 1.8,
+                              filled: comment.isLiked,
+                              color: comment.isLiked
+                                  ? const Color(0xFFFF2D55)
+                                  : _dim,
+                            ),
+                            if (comment.likesCount > 0) ...[
+                              const SizedBox(width: 4),
+                              Text(
+                                '${comment.likesCount}',
+                                style: EnnvoText.tiny.copyWith(
+                                  color: _dim,
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onReply,
+                      child: Text(
+                        'Reply',
+                        style: EnnvoText.tiny.copyWith(
+                          color: _dim,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (comment.isOwn) ...[
+                      const SizedBox(width: 16),
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onDelete,
+                        child: Text(
+                          'Delete',
+                          style: EnnvoText.tiny.copyWith(
+                            color: _faint,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        );
-      case CommentKind.voice:
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: t.isDark ? const Color(0xFF1F242D) : const Color(0xFFECEFF3),
-            borderRadius: BorderRadius.circular(AppRadius.pill),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.play_arrow_rounded, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                '${comment.audioDuration ?? 0}s',
-                style: EnnvoText.tiny.copyWith(color: t.textSecondary),
-              ),
-            ],
-          ),
-        );
-      case CommentKind.text:
-      case CommentKind.video:
-      case CommentKind.reel:
-        return Text(
-          comment.text,
-          style: EnnvoText.caption.copyWith(
-            color: t.textPrimary,
-            fontSize: 13,
-            height: 1.45,
-          ),
-        );
-    }
+        ],
+      ),
+    );
   }
 }
 
+// ============================================================================
+//  The picture of the author of a comment
+// ============================================================================
 class _CommentAvatar extends StatelessWidget {
-  const _CommentAvatar({required this.name, required this.url, required this.size});
+  const _CommentAvatar({required this.comment, required this.size});
 
-  final String name;
-  final String url;
+  final ReelComment comment;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
+    final name = comment.authorName;
+
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: t.surfaceAlt,
-        border: Border.all(
-          color: t.isDark ? const Color(0x260B4A6A) : const Color(0x1FB3E6FD),
-        ),
-        image: url.isEmpty
+        color: const Color(0xFF2A2745),
+        image: comment.authorAvatar.isEmpty
             ? null
-            : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
-      ),
-      child: url.isEmpty
-          ? Center(
-              child: Text(
-                name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-                style: EnnvoText.tiny.copyWith(color: t.textSecondary),
+            : DecorationImage(
+                image: NetworkImage(comment.authorAvatar),
+                fit: BoxFit.cover,
               ),
+      ),
+      alignment: Alignment.center,
+      child: comment.authorAvatar.isEmpty
+          ? Text(
+              name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+              style: EnnvoText.tiny.copyWith(color: Colors.white),
             )
           : null,
     );
   }
 }
 
+// ============================================================================
+//  The empty state
+// ============================================================================
 class _EmptyComments extends StatelessWidget {
+  const _EmptyComments();
+
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          LucideIcon(
-            LucideIcons.messageCircle,
-            size: 52,
-            strokeWidth: 1.4,
-            color: t.textTertiary.withValues(alpha: 0.35),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'No comments yet. Be the first!',
-            style: EnnvoText.body.copyWith(color: t.textTertiary),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const LucideIcon(
+              LucideIcons.messageCircle,
+              size: 34,
+              strokeWidth: 1.5,
+              color: _faint,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No comments yet',
+              style: EnnvoText.body.copyWith(color: _dim, fontSize: 14.5),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Be the first one to say something',
+              style: EnnvoText.caption.copyWith(color: _faint, fontSize: 12.5),
+            ),
+          ],
+        ),
       ),
     );
   }
