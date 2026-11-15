@@ -688,6 +688,26 @@ class AppSizes {
   static const double bottomNavHeight = 56;
   static const double bottomNavPillMinWidth = 292;
   static const double bottomNavPillMaxWidth = 340;
+
+  /// The floating pill of the glass skin hovers this far above the system
+  /// gesture bar, the way the web app's `bottom-3` does.
+  static const double bottomNavGap = 12;
+
+  /// The height of the classic, full width navigation bar.
+  static const double bottomNavHeightClassic = 58;
+
+  /// The distance from the bottom of the screen to the top edge of the
+  /// floating navigation pill.
+  ///
+  /// Every page uses it to keep its content clear of the bar — the reels
+  /// timeline sits on it, and the messages and the chat scroll behind it.
+  static double bottomNavTop(double safeBottom) =>
+      safeBottom + bottomNavGap + bottomNavHeight;
+
+  /// The room a page has to keep at the bottom so its content never slides
+  /// under the floating navigation bar.
+  static double bottomNavClearance(double safeBottom) =>
+      bottomNavTop(safeBottom) + 10;
   static const double navIconSize = 21;
   static const double navIconSizeClassic = 23;
   static const double createButtonSize = 32;

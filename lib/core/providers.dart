@@ -46,6 +46,14 @@ final navControllerProvider = ChangeNotifierProvider<NavController>((ref) {
   return NavController();
 });
 
+/// The conversation that is open on the messages page, if any.
+///
+/// The chat is drawn inside the messages page — not pushed as a route over
+/// the app — so the bottom navigation stays visible and unchanged while the
+/// user is chatting. The shell reads this to route the system back gesture:
+/// it closes the chat first and leaves the app afterwards.
+final openConversationProvider = StateProvider<String?>((ref) => null);
+
 /// Light / dark theme, driven by the persisted preference.
 final themeModeProvider = Provider<ThemeMode>((ref) {
   final prefs = ref.watch(prefsProvider);

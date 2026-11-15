@@ -37,9 +37,14 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   /// Pages that show the shared bottom navigation.
+  ///
+  /// The messages page is one of them: the chat is drawn *inside* the page
+  /// instead of being pushed as a route over the app, so the navigation stays
+  /// exactly where it is — the same way the feed keeps it.
   static const Set<AppPage> _withBottomNav = {
     AppPage.home,
     AppPage.reels,
+    AppPage.messages,
     AppPage.profile,
   };
 
@@ -47,12 +52,23 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget build(BuildContext context) {
     final nav = ref.watch(navControllerProvider);
     final visited = nav.visitedPages;
-    final showNav = _withBottomNav.contains(nav.currentPage);
+    // The navigation bar steps aside while the keyboard is up — it would
+    // otherwise float on top of the composer.
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final showNav =
+        _withBottomNav.contains(nav.currentPage) && !keyboardOpen;
+    final openConversation = ref.watch(openConversationProvider);
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
+        // A chat that is open inside the messages page closes first — the
+        // system back gesture never leaves the app with a chat on screen.
+        if (nav.currentPage == AppPage.messages && openConversation != null) {
+          ref.read(openConversationProvider.notifier).state = null;
+          return;
+        }
         if (nav.canGoBack) {
           nav.backPage();
         }
@@ -76,20 +92,33 @@ class _AppShellState extends ConsumerState<AppShell> {
                 bottom: 0,
                 child: EnnvoBottomNav(
                   currentPage: nav.currentPage,
-                  onSelect: nav.setCurrentPage,
+                  onSelect: _onSelectTab,
                   messageCount: ref.watch(navBadgesProvider).messages,
                   notificationCount: ref
                       .watch(navBadgesProvider)
                       .notifications,
-                  // The reels feed is a black screen, so the bar goes black
-                  // as well and the two read as one surface.
-                  solidDark: nav.currentPage == AppPage.home,
+                  // The reels feed is a black screen, so the bar paints itself
+                  // dark there — exactly like the web app does. It keeps the
+                  // same shape and the same place everywhere.
+                  forceDark: nav.currentPage == AppPage.home,
                 ),
               ),
           ],
         ),
       ),
     );
+  }
+
+  /// Handles a tap on a navigation destination.
+  ///
+  /// Tapping the inbox while a conversation is open goes back to the
+  /// conversation list, the way every messenger does it.
+  void _onSelectTab(AppPage page) {
+    final nav = ref.read(navControllerProvider);
+    if (page == AppPage.messages) {
+      ref.read(openConversationProvider.notifier).state = null;
+    }
+    nav.setCurrentPage(page);
   }
 }
 

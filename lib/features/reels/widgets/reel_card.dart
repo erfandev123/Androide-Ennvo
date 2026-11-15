@@ -263,9 +263,12 @@ class _ReelCardState extends State<ReelCard> {
         Positioned(
           left: 14,
           right: 86,
-          // Sits above the black navigation bar, so the title and the
-          // timeline read as part of the reel rather than the chrome.
-          bottom: MediaQuery.paddingOf(context).bottom + 74,
+          // It sits above the floating navigation bar and its timeline, so
+          // the caption and the handle read as part of the reel rather than
+          // of the chrome.
+          bottom:
+              AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
+              16,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -367,7 +370,12 @@ class _ReelCardState extends State<ReelCard> {
               // --- the song ---
               if (songTitle.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                _SongMarquee(title: songTitle, artist: songArtist),
+                // Its own repaint boundary: the marquee runs forever, and
+                // without the boundary it would repaint the whole reel with
+                // it.
+                RepaintBoundary(
+                  child: _SongMarquee(title: songTitle, artist: songArtist),
+                ),
               ],
             ],
           ),
@@ -376,7 +384,9 @@ class _ReelCardState extends State<ReelCard> {
         // --- the action rail -----------------------------------------
         Positioned(
           right: 8,
-          bottom: MediaQuery.paddingOf(context).bottom + 74,
+          bottom:
+              AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
+              16,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -436,10 +446,13 @@ class _ReelCardState extends State<ReelCard> {
                 semanticLabel: 'Share',
               ),
               const SizedBox(height: 18),
-              _VinylDisc(
-                avatarUrl: widget.post.authorAvatar,
-                playing: widget.isActive && !_paused,
-                onTap: widget.onToggleMute,
+              // The disc spins forever too, so it gets its own boundary.
+              RepaintBoundary(
+                child: _VinylDisc(
+                  avatarUrl: widget.post.authorAvatar,
+                  playing: widget.isActive && !_paused,
+                  onTap: widget.onToggleMute,
+                ),
               ),
             ],
           ),

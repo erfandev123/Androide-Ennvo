@@ -35,8 +35,9 @@ class MessagesPage extends ConsumerStatefulWidget {
 }
 
 class _MessagesPageState extends ConsumerState<MessagesPage> {
-  String? _activeConversationId;
+  /// The message the user is replying to.
   AppMessage? _replyTo;
+
   double _sidebarWidth = 440;
   bool _draggingDivider = false;
 
@@ -50,8 +51,16 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     final conversations = (loaded == null || loaded.isEmpty)
         ? _demoConversations()
         : loaded;
-    final active = _activeConversationId;
+    // The open conversation lives in a provider, so the app shell can route
+    // the system back gesture to it.
+    final active = ref.watch(openConversationProvider);
     final isWide = _isWide(context);
+
+    // The floating navigation bar sits over the bottom of the page, so the
+    // content keeps that much room — the chat composer included.
+    final navClearance = AppSizes.bottomNavClearance(
+      MediaQuery.paddingOf(context).bottom,
+    );
 
     final ambientGlow = Positioned(
       top: 0,
@@ -83,51 +92,19 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
 
     final list = _ConversationList(
       conversations: conversations,
-      onOpen: (id) {
-        // The chat opens as its own screen, pushed over the list, the way
-        // every messenger does it — the navigation is never shared with the
-        // conversation list.
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => _ChatScreen(
-              conversationId: id,
-              messages: _messages[id] ?? const [],
-              replyTo: _replyTo,
-              onReply: (message) => setState(() => _replyTo = message),
-              onCancelReply: () => setState(() => _replyTo = null),
-              onSend: (text, replyTo) async {
-                final message = AppMessage(
-                  id: 'local-${DateTime.now().microsecondsSinceEpoch}',
-                  senderId: 'me',
-                  type: MessageType.text,
-                  content: text,
-                  createdAt: DateTime.now(),
-                  status: MessageStatus.seen,
-                  replyTo: replyTo == null
-                      ? null
-                      : ReplyPreview(
-                          id: replyTo.id,
-                          text: replyTo.content,
-                          authorName: 'them',
-                        ),
-                );
-                setState(() {
-                  _messages[id] = [...?_messages[id], message];
-                });
-              },
-            ),
-          ),
-        );
-      },
+      onOpen: (id) =>
+          ref.read(openConversationProvider.notifier).state = id,
     );
 
     final chat = active == null
         ? null
         : _ChatPane(
             conversationId: active,
+            title: _nameOf(conversations, active),
             messages: _messages[active] ?? const [],
             replyTo: _replyTo,
-            onBack: () => setState(() => _activeConversationId = null),
+            onBack: () =>
+                ref.read(openConversationProvider.notifier).state = null,
             onReply: (message) => setState(() => _replyTo = message),
             onCancelReply: () => setState(() => _replyTo = null),
             onSend: (text, replyTo) async {
@@ -159,29 +136,35 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
           ambientGlow,
           // --- the phone layout: one pane at a time --------------------
           if (!isWide)
-            chat ?? list
+            Padding(
+              padding: EdgeInsets.only(bottom: navClearance),
+              child: chat ?? list,
+            )
           // --- the wide layout: the list and the chat side by side ------
           else
-            Row(
-              children: [
-                SizedBox(width: _sidebarWidth, child: list),
-                if (chat != null) ...[
-                  _Divider(
-                    dragging: _draggingDivider,
-                    onDrag: (delta) {
-                      setState(() {
-                        _sidebarWidth = (_sidebarWidth + delta).clamp(
-                          320.0,
-                          620.0,
-                        );
-                      });
-                    },
-                    onStart: () => setState(() => _draggingDivider = true),
-                    onEnd: () => setState(() => _draggingDivider = false),
-                  ),
-                  Expanded(child: chat),
+            Padding(
+              padding: EdgeInsets.only(bottom: navClearance),
+              child: Row(
+                children: [
+                  SizedBox(width: _sidebarWidth, child: list),
+                  if (chat != null) ...[
+                    _Divider(
+                      dragging: _draggingDivider,
+                      onDrag: (delta) {
+                        setState(() {
+                          _sidebarWidth = (_sidebarWidth + delta).clamp(
+                            320.0,
+                            620.0,
+                          );
+                        });
+                      },
+                      onStart: () => setState(() => _draggingDivider = true),
+                      onEnd: () => setState(() => _draggingDivider = false),
+                    ),
+                    Expanded(child: chat),
+                  ],
                 ],
-              ],
+              ),
             ),
         ],
       ),
@@ -190,6 +173,17 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
 
   static bool _isWide(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= 768;
+
+  /// The name of the person in a conversation.
+  static String _nameOf(List<Conversation> conversations, String id) {
+    for (final conversation in conversations) {
+      if (conversation.id == id) {
+        final name = conversation.displayName('me');
+        return name.isEmpty ? 'Chat' : name;
+      }
+    }
+    return 'Chat';
+  }
 
   List<Conversation> _demoConversations() => [
     Conversation(
@@ -220,45 +214,6 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
       updatedAt: DateTime.now().subtract(const Duration(days: 1)),
     ),
   ];
-}
-
-// ============================================================================
-//  The chat screen — its own route, pushed over the conversation list
-// ============================================================================
-class _ChatScreen extends StatelessWidget {
-  const _ChatScreen({
-    required this.conversationId,
-    required this.messages,
-    required this.replyTo,
-    required this.onReply,
-    required this.onCancelReply,
-    required this.onSend,
-  });
-
-  final String conversationId;
-  final List<AppMessage> messages;
-  final AppMessage? replyTo;
-  final ValueChanged<AppMessage> onReply;
-  final VoidCallback onCancelReply;
-  final Future<void> Function(String text, AppMessage? replyTo) onSend;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
-
-    return Scaffold(
-      backgroundColor: t.chatBackground,
-      body: _ChatPane(
-        conversationId: conversationId,
-        messages: messages,
-        replyTo: replyTo,
-        onBack: () => Navigator.of(context).maybePop(),
-        onReply: onReply,
-        onCancelReply: onCancelReply,
-        onSend: onSend,
-      ),
-    );
-  }
 }
 
 // ============================================================================
@@ -354,7 +309,7 @@ class _ConversationList extends StatelessWidget {
             // --- the conversations ------------------------------------
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 90),
+                padding: const EdgeInsets.only(bottom: 16),
                 itemCount: conversations.length,
                 itemBuilder: (context, index) {
                   final conversation = conversations[index];
@@ -645,6 +600,7 @@ class _ChatPane extends StatelessWidget {
     required this.onReply,
     required this.onCancelReply,
     required this.onSend,
+    this.title = 'Chat',
   });
 
   final String conversationId;
@@ -654,6 +610,9 @@ class _ChatPane extends StatelessWidget {
   final ValueChanged<AppMessage> onReply;
   final VoidCallback onCancelReply;
   final Future<void> Function(String text, AppMessage? replyTo) onSend;
+
+  /// The name of the person on the other side.
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -702,7 +661,7 @@ class _ChatPane extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Arif Hasan',
+                          title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: EnnvoText.bodySemi.copyWith(
@@ -711,7 +670,10 @@ class _ChatPane extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 1),
+                        // The row shrinks on a narrow phone, so the label
+                        // gives way before the header overflows.
                         const Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             LucideIcon(
                               LucideIcons.mic,
@@ -720,13 +682,17 @@ class _ChatPane extends StatelessWidget {
                               color: Color(0xFFA855F7),
                             ),
                             SizedBox(width: 4),
-                            Text(
-                              'typing...',
-                              style: TextStyle(
-                                fontFamily: 'PlusJakartaSans',
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFFA855F7),
+                            Flexible(
+                              child: Text(
+                                'typing...',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontFamily: 'PlusJakartaSans',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFFA855F7),
+                                ),
                               ),
                             ),
                           ],

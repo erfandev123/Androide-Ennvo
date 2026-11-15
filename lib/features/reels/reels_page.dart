@@ -19,6 +19,7 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -31,6 +32,7 @@ import '../../core/theme/typography.dart';
 import '../../data/models/post.dart';
 import '../../data/services/reels_service.dart';
 import '../../shared/icons/lucide_icons.dart';
+import '../../shared/widgets/brand_splash.dart';
 import 'demo_reels.dart';
 import 'models/reel_comment.dart';
 import 'widgets/comments_sheet.dart';
@@ -50,7 +52,15 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   late final PageController _pageController;
 
   int _activeIndex = 0;
-  double _progress = 0;
+
+  /// The progress of the active reel.
+  ///
+  /// It lives in a [ValueNotifier] and not in the state of the page: the
+  /// video reports its position on every frame, and a `setState` for each of
+  /// them would rebuild the whole feed thirty times a second — which is
+  /// exactly what makes a reels page stutter on a weak phone.
+  final ValueNotifier<double> _progress = ValueNotifier<double>(0);
+
   bool _muted = true;
   bool _showWelcome = true;
   String _tab = 'forYou';
@@ -85,6 +95,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   void dispose() {
     _dwellTimer?.cancel();
     _welcomeTimer?.cancel();
+    _progress.dispose();
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -101,8 +112,8 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     _dwellTimer?.cancel();
     setState(() {
       _activeIndex = index;
-      _progress = 0;
     });
+    _progress.value = 0;
 
     if (index >= reels.length) return;
     final reel = reels[index];
@@ -230,8 +241,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                       post.repostsCount + (_reposted.contains(post.id) ? 1 : 0),
                   muted: _muted,
                   onProgress: (value) {
+                    // Only the timeline listens to this — the feed itself is
+                    // never rebuilt for it.
                     if (index != _activeIndex || !mounted) return;
-                    setState(() => _progress = value);
+                    _progress.value = value;
                   },
                   onToggleLike: () {
                     HapticFeedback.lightImpact();
@@ -299,23 +312,16 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
             ),
           ),
 
-          // --- the progress bar --------------------------------------
+          // --- the timeline -------------------------------------------
+          // It sits right on top of the floating navigation bar, and it
+          // moves on its own: the feed is never rebuilt while a video plays.
           Positioned(
-            left: 16,
-            right: 16,
-            // Just above the black navigation bar.
-            bottom: MediaQuery.paddingOf(context).bottom + 60,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: SizedBox(
-                height: 2,
-                child: LinearProgressIndicator(
-                  value: _progress,
-                  backgroundColor: Colors.white.withValues(alpha: 0.22),
-                  valueColor: const AlwaysStoppedAnimation(Colors.white),
-                ),
-              ),
-            ),
+            left: 18,
+            right: 18,
+            bottom:
+                AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
+                4,
+            child: _Timeline(value: _progress),
           ),
 
           // --- the PC up / down controller ----------------------------
@@ -827,17 +833,56 @@ class _ReelsLoading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The first videos are still on the wire, so the page shows the brand
+    // mark instead of a flat black rectangle.
     return const ColoredBox(
       color: Colors.black,
-      child: Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            valueColor: AlwaysStoppedAnimation(Colors.white24),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.center,
+                radius: 0.9,
+                colors: [Color(0x331D4ED8), Color(0x00000000)],
+              ),
+            ),
           ),
-        ),
+          Center(child: EnnvoBrandMark(size: 92)),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
+//  The timeline of the active reel
+// ============================================================================
+class _Timeline extends StatelessWidget {
+  const _Timeline({required this.value});
+
+  /// The progress of the active video.
+  final ValueListenable<double> value;
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: ValueListenableBuilder<double>(
+        valueListenable: value,
+        builder: (context, progress, _) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: SizedBox(
+              height: 2,
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.white.withValues(alpha: 0.22),
+                valueColor: const AlwaysStoppedAnimation(Colors.white),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

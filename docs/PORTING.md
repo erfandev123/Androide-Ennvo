@@ -247,3 +247,71 @@ place. The sheet grows upward with the keyboard inset, so the list never
 jumps.
 
 
+### The launch screen, the icon and the brand mark
+
+The app opens on the mark of Ennvo, never on a plain colour.
+
+| Piece | Where it comes from |
+|---|---|
+| `assets/brand/ennvo_logo.png` | the source of truth, copied from the web build's `public/icon-512.png` |
+| `tooling/make_launcher_icons.py` | resamples the mark into every Android density — the launcher icon, the adaptive foreground, the themed icon and the launch screen mark |
+| `android/.../values-v31/styles.xml` | the Android 12 splash, on the same black window |
+| `lib/shared/widgets/brand_splash.dart` | the mark inside the app, used by the launch screen and by the reels placeholder |
+
+The launch window is black in both light and dark mode, because that is the
+colour the app itself opens on — a white window would flash before the
+first Flutter frame arrives.
+
+---
+
+## 11. The navigation, the chat and the reels fixes
+
+This round fixed the four complaints that came out of the reels rebuild.
+
+### One navigation bar, everywhere
+
+The reels page used to swap the floating pill for a full width solid bar, so
+the navigation changed shape the moment the feed opened. The bar is now the
+same widget on every page; on the reels feed it only paints itself with the
+dark palette — exactly what the web app's `isDarkNav` does.
+
+The floating pill floats `AppSizes.bottomNavGap` above the system gesture
+bar, so `AppSizes.bottomNavTop()` is the one number every page uses to keep
+its content clear of it: the reels timeline sits on it, the reels caption
+sits above it, and the conversation list and the chat composer scroll behind
+it.
+
+The bar steps aside while the keyboard is up, so it never floats on top of
+the composer.
+
+### The chat stays inside the messages page
+
+The chat used to be pushed as a route over the whole app, which took the
+navigation with it. It is now drawn inside the messages page, the way the
+wide layout always did it:
+
+* the conversation list and the chat share the page
+* the navigation bar stays exactly where it is
+* the system back gesture closes the chat first and leaves the page after it
+* tapping the inbox in the navigation goes back to the conversation list
+
+The open conversation lives in `openConversationProvider`, so the app shell
+and the messages page always agree on what is open.
+
+### The black reels
+
+Two causes, both fixed:
+
+* the player was told that **every** video was an HLS stream. An MP4 handed
+  to the HLS extractor never starts, so the reel stayed a black rectangle.
+  `ReelVideo.formatHintFor()` only says HLS for an actual `.m3u8`
+* the placeholder was a flat black box. It is now the brand mark, so the
+  reel page is never an empty screen while the first video is on the wire
+
+### The scroll
+
+The video reported its position on every frame, and every frame rebuilt the
+whole feed. The progress now lives in a `ValueNotifier` that only the
+timeline listens to, and the spinning disc and the scrolling song title got
+their own repaint boundaries — they run forever, and without a boundary they
+repainted the whole reel with them.

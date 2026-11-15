@@ -11,6 +11,7 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/motion.dart';
 import 'features/auth/auth_page.dart';
 import 'features/shell/app_shell.dart';
+import 'shared/widgets/brand_splash.dart';
 
 class EnnvoApp extends ConsumerStatefulWidget {
   const EnnvoApp({super.key});
@@ -79,21 +80,33 @@ class _EnnvoAppState extends ConsumerState<EnnvoApp> {
 }
 
 /// Shown while the persisted session is being restored.
+///
+/// The brand mark breathes on the black the app opens on — the same screen
+/// the Android launcher hands over to, so the app never flashes.
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Color(0xFF2563EB),
+      backgroundColor: Colors.black,
       body: Center(
-        child: SizedBox(
-          width: 26,
-          height: 26,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            valueColor: AlwaysStoppedAnimation(Colors.white),
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            EnnvoBrandMark(size: 104),
+            SizedBox(height: 18),
+            Text(
+              'Ennvo',
+              style: TextStyle(
+                fontFamily: 'Outfit',
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.4,
+                color: Color(0x8CFFFFFF),
+              ),
+            ),
+          ],
         ),
       ),
     );

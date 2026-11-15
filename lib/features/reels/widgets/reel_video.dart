@@ -54,6 +54,19 @@ class ReelVideo extends StatefulWidget {
   final VoidCallback? onReady;
   final VoidCallback? onFailed;
 
+  /// The format of a video URL.
+  ///
+  /// Only a real HLS playlist is played as HLS. Telling the player that a
+  /// plain MP4 is an HLS stream makes it pick the HLS extractor, and the
+  /// video never starts — which is what the black rectangle on the reels
+  /// page was.
+  static VideoFormat? formatHintFor(String url) {
+    final path = Uri.tryParse(url)?.path.toLowerCase() ?? '';
+    if (path.endsWith('.m3u8')) return VideoFormat.hls;
+    if (path.endsWith('.mpd')) return VideoFormat.dash;
+    return null;
+  }
+
   @override
   State<ReelVideo> createState() => _ReelVideoState();
 }
@@ -134,7 +147,7 @@ class _ReelVideoState extends State<ReelVideo> {
           : VideoPlayerController.networkUrl(
               Uri.parse(url!),
               videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
-              formatHint: VideoFormat.hls,
+              formatHint: ReelVideo.formatHintFor(url!),
             );
 
       _controller = controller;

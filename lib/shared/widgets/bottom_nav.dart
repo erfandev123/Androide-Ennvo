@@ -24,7 +24,6 @@ import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../icons/ennvo_nav_icons.dart';
-import '../icons/lucide_icons.dart';
 
 class EnnvoBottomNav extends ConsumerStatefulWidget {
   const EnnvoBottomNav({
@@ -35,7 +34,7 @@ class EnnvoBottomNav extends ConsumerStatefulWidget {
     this.messageCount = 0,
     this.notificationCount = 0,
     this.isHidden = false,
-    this.solidDark = false,
+    this.forceDark = false,
   });
 
   final AppPage currentPage;
@@ -47,9 +46,13 @@ class EnnvoBottomNav extends ConsumerStatefulWidget {
   /// The reels page hides the bar for a clean full-screen video feed.
   final bool isHidden;
 
-  /// A full width solid black bar, the way TikTok puts its navigation over
-  /// the video so the bar matches the screen.
-  final bool solidDark;
+  /// Paints the bar with the dark palette.
+  ///
+  /// The reels feed is a black screen, so the bar paints itself dark there
+  /// — the same way the web app's `isDarkNav` does. The bar keeps its shape,
+  /// its size and its place: it never turns into a different bar, it only
+  /// changes its colours.
+  final bool forceDark;
   @override
   ConsumerState<EnnvoBottomNav> createState() => _EnnvoBottomNavState();
 }
@@ -79,50 +82,20 @@ class _EnnvoBottomNavState extends ConsumerState<EnnvoBottomNav> {
     final profile = ref.watch(deviceProfileProvider);
     final safeBottom = MediaQuery.paddingOf(context).bottom;
 
-    if (widget.solidDark) return _buildSolid(context, safeBottom);
-
     return style == 'classic'
         ? _buildClassic(context, safeBottom)
         : _buildGlass(context, safeBottom, profile.allowBlur);
   }
 
-  // ======================================================================
-  //  The solid dark bar — TikTok puts a black navigation over the video so
-  //  the bar and the screen read as one surface.
-  // ======================================================================
-  Widget _buildSolid(BuildContext context, double safeBottom) {
-    final activeIndex = _indexOf(widget.currentPage);
-
-    return Container(
-      height: 54 + safeBottom,
-      padding: EdgeInsets.only(bottom: safeBottom),
-      color: Colors.black,
-      child: Row(
-        children: [
-          for (final page in _items)
-            Expanded(
-              child: _SolidItem(
-                page: page,
-                isActive: page == widget.currentPage,
-                avatarUrl: page == AppPage.profile ? widget.avatarUrl : null,
-                badgeCount:
-                    page == AppPage.messages
-                    ? widget.messageCount + widget.notificationCount
-                    : 0,
-                onTap: () => _handleTap(page, _indexOf(page)),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  /// Whether the bar paints itself with the dark palette.
+  bool _isDark(BuildContext context) =>
+      context.tokens.isDark || widget.forceDark;
 
   // ======================================================================
   //  Glass skin
   // ======================================================================
   Widget _buildGlass(BuildContext context, double safeBottom, bool allowBlur) {
-    final t = context.tokens;
-    final isDark = t.isDark;
+    final isDark = _isDark(context);
     final activeIndex = _indexOf(widget.currentPage);
 
     final pillBackground = isDark ? const Color(0xFF000000) : Colors.white;
@@ -231,20 +204,14 @@ class _EnnvoBottomNavState extends ConsumerState<EnnvoBottomNav> {
   //  Classic skin
   // ======================================================================
   Widget _buildClassic(BuildContext context, double safeBottom) {
-    final t = context.tokens;
-    final isDark = t.isDark;
-    final isReels = widget.currentPage == AppPage.home;
+    final isDark = _isDark(context);
 
-    final background = isReels
-        ? Colors.black
-        : (isDark ? const Color(0xFF0B0B0E) : Colors.white);
-    final borderColor = isReels
-        ? Colors.transparent
-        : (isDark ? const Color(0x1AFFFFFF) : const Color(0xCCE5E7EB));
-    final idleIcon = isReels || isDark
-        ? const Color(0x99FFFFFF)
-        : const Color(0xFF6B7280);
-    final activeIcon = isReels || isDark ? Colors.white : const Color(0xFF0EA5E9);
+    final background = isDark ? const Color(0xFF0B0B0E) : Colors.white;
+    final borderColor = isDark
+        ? const Color(0x1AFFFFFF)
+        : const Color(0xCCE5E7EB);
+    final idleIcon = isDark ? const Color(0x99FFFFFF) : const Color(0xFF6B7280);
+    final activeIcon = isDark ? Colors.white : const Color(0xFF0EA5E9);
     final dotColor = isDark ? Colors.white : const Color(0xFF0EA5E9);
 
     // Positioned by the parent — see the note in the glass skin.
@@ -500,172 +467,6 @@ class _ProfileAvatar extends StatelessWidget {
       duration: EnnvoDurations.dropdown,
       curve: EnnvoCurves.press,
       child: avatar,
-    );
-  }
-}
-
-// ============================================================================
-//  One destination of the solid dark bar
-// ============================================================================
-class _SolidItem extends StatelessWidget {
-  const _SolidItem({
-    required this.page,
-    required this.isActive,
-    required this.onTap,
-    this.avatarUrl,
-    this.badgeCount = 0,
-  });
-
-  final AppPage page;
-  final bool isActive;
-  final VoidCallback onTap;
-  final String? avatarUrl;
-  final int badgeCount;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget icon;
-    switch (page) {
-      case AppPage.home:
-        icon = EnnvoNavIconView(
-          EnnvoNavIcon.home,
-          color: Colors.white,
-          size: 25,
-          filled: isActive,
-        );
-      case AppPage.reels:
-        icon = EnnvoNavIconView(
-          EnnvoNavIcon.feed,
-          color: Colors.white,
-          size: 25,
-          filled: isActive,
-        );
-      case AppPage.create:
-        icon = const _SolidCreateButton();
-      case AppPage.messages:
-        icon = EnnvoNavIconView(
-          EnnvoNavIcon.message,
-          color: Colors.white,
-          size: 25,
-          filled: isActive,
-        );
-      case AppPage.profile:
-        icon = _SolidAvatar(url: avatarUrl, isActive: isActive);
-      default:
-        icon = EnnvoNavIconView(
-          EnnvoNavIcon.home,
-          color: Colors.white,
-          size: 25,
-        );
-    }
-
-    return Semantics(
-      button: true,
-      selected: isActive,
-      label: page.navLabel,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: SizedBox(
-          height: 48,
-          child: Center(
-            child: Stack(
-              clipBehavior: Clip.none,
-              alignment: Alignment.center,
-              children: [
-                icon,
-                if (badgeCount > 0)
-                  Positioned(
-                    top: -6,
-                    right: -12,
-                    child: Container(
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      alignment: Alignment.center,
-                      decoration: const BoxDecoration(
-                        color: kBrand,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        badgeCount > 99 ? '99+' : '$badgeCount',
-                        style: EnnvoText.tiny.copyWith(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          height: 1,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The create button of the solid bar.
-class _SolidCreateButton extends StatelessWidget {
-  const _SolidCreateButton();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 30,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      alignment: Alignment.center,
-      child: const LucideIcon(
-        LucideIcons.plus,
-        size: 18,
-        strokeWidth: 2.6,
-        color: Colors.black,
-      ),
-    );
-  }
-}
-
-/// The profile avatar of the solid bar.
-class _SolidAvatar extends StatelessWidget {
-  const _SolidAvatar({this.url, this.isActive = false});
-
-  final String? url;
-  final bool isActive;
-
-  @override
-  Widget build(BuildContext context) {
-    final avatarUrl = url ?? '';
-
-    return Container(
-      width: 26,
-      height: 26,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(
-          color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.4),
-          width: 1.5,
-        ),
-        image: avatarUrl.isEmpty
-            ? null
-            : DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover),
-      ),
-      child: avatarUrl.isEmpty
-          ? Center(
-              child: EnnvoNavIconView(
-                EnnvoNavIcon.profile,
-                color: Colors.white,
-                size: 16,
-              ),
-            )
-          : null,
     );
   }
 }

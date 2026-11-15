@@ -47,3 +47,7 @@ rea/
 # The Flutter template widget test references a MyApp class this
 # project does not have.
 test/widget_test.dart
+
+# The golden test framework writes the failing frame here when a
+# screenshot does not match. It is a local artefact, never a source file.
+test/failures/
