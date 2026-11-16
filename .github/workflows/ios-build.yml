@@ -13,7 +13,10 @@ on:
 
 concurrency:
   group: ios-${{ github.ref }}
-  cancel-in-progress: true
+  # A queued macOS runner is expensive to get. Never throw one away just
+  # because another push arrived: that left the build cancelled with no
+  # steps run.
+  cancel-in-progress: false
 
 jobs:
   build:
