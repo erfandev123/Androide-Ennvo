@@ -44,17 +44,23 @@ def main() -> None:
             print("  the name of the app: NOT FOUND")
 
         # The signature of the release build (v2 / v3) lives in a block
-        # before the central directory. Its presence shows up as the marker
-        # of the APK signature block.
+        # between the content and the central directory. Its magic is the
+        # 16 bytes that sit right before the central directory.
         with open(path, "rb") as handle:
-            head = handle.read(1024 * 1024)
-            size = len(head)
-            handle.seek(-64, 2)
-            tail = handle.read(64)
-        if b"APK Sig Block 42" in head or b"APK Sig Block 42" in tail:
+            data = handle.read()
+
+        eocd = data.rfind(b"PK\x05\x06")
+        signed = False
+        if eocd >= 20:
+            import struct
+
+            (cd_offset,) = struct.unpack_from("<I", data, eocd + 16)
+            signed = data[cd_offset - 16 : cd_offset] == b"APK Sig Block 42"
+
+        if signed:
             print("  the v2 / v3 signature: present")
         else:
-            print("  the v2 / v3 signature: NOT FOUND (the file may be short)")
+            print("  the v2 / v3 signature: NOT FOUND")
 
         # The size of the arm64 library folder tells whether the plugins
         # came along.
