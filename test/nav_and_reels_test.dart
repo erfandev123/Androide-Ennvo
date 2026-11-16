@@ -326,8 +326,60 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the comment sheet fits a phone', (tester) async {
+  testWidgets('the comment sheet does not move when the keyboard opens', (
+    tester,
+  ) async {
     final prefs = await _buildPrefs();
+    final container = _container(prefs);
+
+    await _pump(
+      tester,
+      container,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Builder(
+          builder: (context) => Center(
+            child: ElevatedButton(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (_) => ReelCommentsSheet(
+                  comments: const <ReelComment>[],
+                  onSubmit: (text, replyTo) async {},
+                  onToggleLike: (comment) {},
+                  onDelete: (comment) {},
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final before = tester.getRect(find.byType(ReelCommentsSheet));
+
+    // The keyboard comes up.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    final after = tester.getRect(find.byType(ReelCommentsSheet));
+
+    // The sheet keeps its place: the screen behind it does not go up, only
+    // the composer floats above the keyboard.
+    expect(after.top, before.top);
+    expect(after.height, before.height);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the comment sheet fits a phone', (tester) async {    final prefs = await _buildPrefs();
     final container = _container(prefs);
 
     await _pump(
