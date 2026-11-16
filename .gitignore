@@ -39,6 +39,8 @@ firebase-service-account.json
 Thumbs.db
 *.log
 logs/
+__pycache__/
+*.pyc
 
 # --- REA / analysis artefacts ------------------------------------------------
 rea/

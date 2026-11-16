@@ -141,7 +141,9 @@ class _EnnvoBottomNavState extends ConsumerState<EnnvoBottomNav> {
                   begin: activeIndex.toDouble(),
                   end: activeIndex.toDouble(),
                 ),
-                duration: const Duration(milliseconds: 520),
+                // The highlight moves quickly: the page itself is already
+                // there, so the bar must not keep the user waiting.
+                duration: const Duration(milliseconds: 280),
                 curve: const SpringCurve(EnnvoSprings.navPill),
                 builder: (context, animatedIndex, _) {
                   return Stack(

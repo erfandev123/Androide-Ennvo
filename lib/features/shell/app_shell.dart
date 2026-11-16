@@ -12,13 +12,14 @@
 // ============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/nav/nav_controller.dart';
 import '../../core/nav/page_type.dart';
 import '../../core/providers.dart';
 import '../../shared/widgets/bottom_nav.dart';
-import '../create/create_page.dart';
+import '../create/camera_page.dart';
 import '../edit_profile/edit_profile_page.dart';
 import '../feed/feed_page.dart';
 import '../messages/messages_page.dart';
@@ -58,6 +59,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     final showNav =
         _withBottomNav.contains(nav.currentPage) && !keyboardOpen;
 
+    // The buttons of the phone - back, home and the square - must stay
+    // readable on every page. The reels feed is black, so they are light
+    // there, and dark on the pages that are light.
+    _applySystemBars(nav.currentPage == AppPage.home);
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -68,6 +74,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       },
       child: Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        // The keyboard must never push the screen up: the composer of a
+        // sheet floats above it and the page behind stays where it is.
+        resizeToAvoidBottomInset: false,
         body: Stack(
           children: [
             for (final page in visited)
@@ -106,6 +115,26 @@ class _AppShellState extends ConsumerState<AppShell> {
   void _onSelectTab(AppPage page) {
     ref.read(navControllerProvider).setCurrentPage(page);
   }
+
+  /// The last style that was sent to the system, so the channel is only
+  /// written when something really changed.
+  SystemUiOverlayStyle? _systemBars;
+
+  /// Paints the buttons of the phone in the colour of the page.
+  void _applySystemBars(bool darkPage) {
+    final style = SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      statusBarIconBrightness: darkPage ? Brightness.light : Brightness.dark,
+      statusBarBrightness: darkPage ? Brightness.dark : Brightness.light,
+      systemNavigationBarIconBrightness:
+          darkPage ? Brightness.light : Brightness.dark,
+      systemNavigationBarDividerColor: Colors.transparent,
+    );
+    if (_systemBars == style) return;
+    _systemBars = style;
+    SystemChrome.setSystemUIOverlayStyle(style);
+  }
 }
 
 /// Hosts a single page and keeps it alive while another page is on top.
@@ -136,7 +165,9 @@ class _PageHost extends StatelessWidget {
     AppPage.search => const SearchPage(),
     AppPage.messages => const MessagesPage(),
     AppPage.notifications => const NotificationsPage(),
-    AppPage.create => const CreatePage(),
+    // The `+` of the navigation bar opens the camera, the way Instagram
+    // does: the composer comes after the picture.
+    AppPage.create => const CameraPage(),
     AppPage.profile => const ProfilePage(),
     AppPage.settings => const SettingsPage(),
     AppPage.editProfile => const EditProfilePage(),

@@ -143,17 +143,31 @@ core count through the `ennvo/device` method channel.
 
 ## 8. Still to port
 
+The full list of the work that is left lives in **[TODO.md](TODO.md)**.
+
 | Area | Notes |
 |---|---|
-| Reel comments and share sheets | the portals are opened from the rail buttons |
 | Story viewer | the progress bar, the reply sheet and the 24 h expiry |
 | Media viewer and cropper | the full screen lightbox and the avatar crop |
 | Sticker creator and picker | the sticker studio |
-| Reel camera | the in-app camera with the reel filters |
+| Live camera preview | the upload camera takes the picture with the picker of the system; there is no live picture behind the shutter yet |
 | Calls | WebRTC signalling is written; the UI is not ported yet |
 | Push notifications | the FCM service and the gateway are wired; the notification actions are not |
 | Offline media | the saved-media index |
 | Admin console | the web app keeps it in a separate lazy chunk |
+
+### What arrived with the reels round
+
+| Piece | Where |
+|---|---|
+| The purple splash with the logo, seen once | `lib/shared/widgets/brand_splash.dart` |
+| The brand assets: the black tile, the launcher icons | `tooling/make_brand_assets.py` |
+| The playback handle: the 2x hold and the drag of the timeline | `lib/features/reels/widgets/reel_video.dart` |
+| The comment sheet: the composer, the voice notes, the pictures | `lib/features/reels/widgets/comments_sheet.dart` |
+| The share sheet: the people, the send button, the settings | `lib/features/reels/widgets/share_sheet.dart` |
+| The upload camera | `lib/features/create/camera_page.dart` |
+| The Cloudflare R2 uploads | `lib/data/services/upload_service.dart` |
+| The voice notes | `lib/data/services/voice_recorder.dart` |
 
 ---
 

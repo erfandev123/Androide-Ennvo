@@ -75,6 +75,9 @@ class CommentService {
   }
 
   /// Writes a comment — or a reply to a comment.
+  ///
+  /// A comment can be a text, a sticker, a photo or a voice note: the kind
+  /// and the file it carries travel with it.
   static Future<bool> add({
     required String postId,
     required String text,
@@ -83,8 +86,13 @@ class CommentService {
     required String authorAvatar,
     String? parentId,
     String kind = 'text',
+    String? mediaUrl,
+    int? audioDuration,
   }) async {
-    if (!FirebaseService.isReady || text.trim().isEmpty) return false;
+    if (!FirebaseService.isReady) return false;
+    if (text.trim().isEmpty && (mediaUrl == null || mediaUrl.isEmpty)) {
+      return false;
+    }
     try {
       await _collection(postId).add({
         'authorId': authorId,
@@ -92,6 +100,8 @@ class CommentService {
         'authorAvatar': authorAvatar,
         'text': text.trim(),
         'kind': kind,
+        'mediaUrl': mediaUrl,
+        'audioDuration': audioDuration,
         'createdAt': FieldValue.serverTimestamp(),
         'parentId': parentId,
         'likesCount': 0,

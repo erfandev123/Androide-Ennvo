@@ -1,18 +1,23 @@
 // ============================================================================
-//  ENNVO — REEL VIDEO
+//  ENNVO �?" REEL VIDEO
 //
 //  The video surface of a reel.
 //
-//  Playback strategy — this is what makes the feed feel like TikTok:
+//  Playback strategy �?" this is what makes the feed feel like TikTok:
 //
-//    • the controller is created as soon as the reel enters the preload
+//    �?� the controller is created as soon as the reel enters the preload
 //      window, not when it becomes active, so the network round trip and
 //      the first frame decode happen while the user is still watching
-//    • the active reel plays, the prepared neighbour stays paused
-//    • a reel that leaves the window is released completely, decoder and all
-//    • the poster is shown until the first frame is ready, then the video
+//    �?� the active reel plays, the prepared neighbour stays paused
+//    �?� a reel that leaves the window is released completely, decoder and all
+//    �?� the poster is shown until the first frame is ready, then the video
 //      cross fades in over it
-//    • pausing resets the position, so a reel always starts from the top
+//    �?� pausing resets the position, so a reel always starts from the top
+//
+//  The frame of the video keeps its own shape. A 9:16 reel, a 16:9 reel and
+//  a square reel are all shown at their own size, centred on the black of
+//  the feed: the picture is never stretched and never cropped away, which is
+//  what Instagram does with the frames of its feed.
 // ============================================================================
 
 import 'dart:async';
@@ -21,6 +26,42 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../shared/icons/lucide_icons.dart';
+
+/// A handle on the playback of the reel on screen.
+///
+/// The timeline drags it, and the reel follows: the page owns the handle
+/// and hands it to the card, so a scrub never rebuilds the feed.
+class ReelPlayback extends ChangeNotifier {
+  double _speed = 1;
+  double? _seekTo;
+
+  /// The playback speed the reel runs at.
+  double get speed => _speed;
+
+  /// Runs the reel at [speed]. The 2x hold gesture uses it.
+  void setSpeed(double speed) {
+    if ((_speed - speed).abs() < 0.01) return;
+    _speed = speed;
+    notifyListeners();
+  }
+
+  /// Moves the reel to [fraction] of its length.
+  void seek(double fraction) {
+    _seekTo = fraction.clamp(0.0, 1.0);
+    notifyListeners();
+  }
+
+  /// The position the reel is asked to move to.
+  ///
+  /// It stays pending until the reel that is on screen takes it, so a
+  /// neighbouring reel never swallows the scrub.
+  double? get pendingSeek => _seekTo;
+
+  /// Takes the pending seek.
+  void consumeSeek() {
+    _seekTo = null;
+  }
+}
 
 class ReelVideo extends StatefulWidget {
   const ReelVideo({
@@ -37,6 +78,7 @@ class ReelVideo extends StatefulWidget {
     this.onProgress,
     this.onReady,
     this.onFailed,
+    this.playback,
   });
 
   /// A remote video.
@@ -53,7 +95,7 @@ class ReelVideo extends StatefulWidget {
 
   /// A picture instead of a video.
   ///
-  /// A post in the reels feed may carry a photo — handing it to the video
+  /// A post in the reels feed may carry a photo �?" handing it to the video
   /// player is what left the feed with a black rectangle.
   final String? imageUrl;
 
@@ -72,11 +114,14 @@ class ReelVideo extends StatefulWidget {
   final VoidCallback? onReady;
   final VoidCallback? onFailed;
 
+  /// The shared playback handle: the speed and the seek.
+  final ReelPlayback? playback;
+
   /// The format of a video URL.
   ///
   /// Only a real HLS playlist is played as HLS. Telling the player that a
   /// plain MP4 is an HLS stream makes it pick the HLS extractor, and the
-  /// video never starts — which is what the black rectangle on the reels
+  /// video never starts �?" which is what the black rectangle on the reels
   /// page was.
   static VideoFormat? formatHintFor(String url) {
     final path = Uri.tryParse(url)?.path.toLowerCase() ?? '';
@@ -95,16 +140,23 @@ class _ReelVideoState extends State<ReelVideo> {
   bool _failed = false;
   bool _firstFramePainted = false;
   Timer? _playDebounce;
+  ReelPlayback? _playback;
 
   @override
   void initState() {
     super.initState();
     if (widget.isNear) _prepare();
+    _attachPlayback();
   }
 
   @override
   void didUpdateWidget(covariant ReelVideo oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.playback != widget.playback) {
+      _detachPlayback();
+      _attachPlayback();
+    }
 
     if (oldWidget.isNear != widget.isNear) {
       if (widget.isNear) {
@@ -138,8 +190,55 @@ class _ReelVideoState extends State<ReelVideo> {
   @override
   void dispose() {
     _playDebounce?.cancel();
+    _detachPlayback();
     _release();
     super.dispose();
+  }
+
+  // ---------------------------------------------------------------------
+  //  The playback handle
+  // ---------------------------------------------------------------------
+  void _attachPlayback() {
+    final playback = widget.playback;
+    if (playback == null) return;
+    _playback = playback..addListener(_onPlaybackChanged);
+  }
+
+  void _detachPlayback() {
+    _playback?.removeListener(_onPlaybackChanged);
+    _playback = null;
+  }
+
+  /// A scrub or a speed change arrived.
+  void _onPlaybackChanged() {
+    final playback = _playback;
+    if (playback == null) return;
+
+    // The speed first: it is the cheap one.
+    final controller = _controller;
+    if (controller != null && _ready) {
+      unawaited(controller.setPlaybackSpeed(playback.speed));
+    }
+
+    final fraction = playback.pendingSeek;
+    if (fraction == null) return;
+
+    // Only the reel on screen takes the scrub. The neighbours are paused,
+    // and they must not swallow the position the user dragged to.
+    if (!widget.isActive) return;
+    playback.consumeSeek();
+
+    final current = _controller;
+    if (current == null || !_ready) return;
+    final duration = current.value.duration;
+    if (duration.inMilliseconds <= 0) return;
+    unawaited(
+      current.seekTo(
+        Duration(
+          milliseconds: (duration.inMilliseconds * fraction).round(),
+        ),
+      ),
+    );
   }
 
   void _release() {
@@ -155,7 +254,7 @@ class _ReelVideoState extends State<ReelVideo> {
   }
 
   Future<void> _prepare() async {
-    // A picture needs no decoder — it is on screen as soon as it is
+    // A picture needs no decoder �?" it is on screen as soon as it is
     // downloaded.
     if (widget.imageUrl != null) {
       if (mounted) setState(() => _ready = true);
@@ -184,6 +283,7 @@ class _ReelVideoState extends State<ReelVideo> {
       await controller.initialize();
       await controller.setLooping(true);
       await controller.setVolume(widget.muted ? 0 : 1);
+      await controller.setPlaybackSpeed(_playback?.speed ?? 1);
       controller.addListener(_onTick);
 
       if (!mounted) {
@@ -232,7 +332,7 @@ class _ReelVideoState extends State<ReelVideo> {
     if (controller == null || !_ready) return;
 
     // A short debounce stops a burst of page changes from thrashing the
-    // decoder — that is what causes the stutter on a low end phone.
+    // decoder �?" that is what causes the stutter on a low end phone.
     _playDebounce?.cancel();
     _playDebounce = Timer(const Duration(milliseconds: 90), () async {
       if (!mounted) return;
@@ -257,7 +357,7 @@ class _ReelVideoState extends State<ReelVideo> {
     });
   }
 
-  /// Sets the playback speed — used by the 2x hold gesture.
+  /// Sets the playback speed �?" used by the 2x hold gesture.
   Future<void> setSpeed(double speed) async {
     final controller = _controller;
     if (controller == null || !_ready) return;
@@ -273,7 +373,7 @@ class _ReelVideoState extends State<ReelVideo> {
     if (imageUrl != null) {
       return Image.network(
         imageUrl,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         width: double.infinity,
         height: double.infinity,
         errorBuilder: (_, __, ___) => _poster(),
@@ -323,12 +423,13 @@ class _ReelVideoState extends State<ReelVideo> {
       return _poster();
     }
 
-    // The video fills the screen edge to edge, the way TikTok does.
+    // The video keeps its own shape: it is fitted inside the frame, never
+    // stretched and never cropped away.
     return Stack(
       fit: StackFit.expand,
       children: [
         FittedBox(
-          fit: BoxFit.cover,
+          fit: BoxFit.contain,
           child: SizedBox(
             width: controller.value.size.width,
             height: controller.value.size.height,
@@ -365,7 +466,7 @@ class _ReelVideoState extends State<ReelVideo> {
           placeholder,
           Image.asset(
             widget.posterAsset!,
-            fit: BoxFit.cover,
+            fit: BoxFit.contain,
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),
         ],
@@ -379,7 +480,7 @@ class _ReelVideoState extends State<ReelVideo> {
           placeholder,
           Image.network(
             widget.posterUrl!,
-            fit: BoxFit.cover,
+            fit: BoxFit.contain,
             cacheWidth: 1080,
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),

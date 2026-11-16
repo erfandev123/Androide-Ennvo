@@ -108,4 +108,73 @@ class PostService {
       return currentCount;
     }
   }
+
+  /// Writes a new post.
+  ///
+  /// It is the document the web app writes in `src/services/postService.ts`:
+  /// the author, the text, the media and the counters.
+  ///
+  /// The id is made on the phone, so the post is known before it is on the
+  /// server - that is what lets the feed show it at once.
+  static Future<String?> create({
+    required String id,
+    required String authorId,
+    required String authorName,
+    required String authorAvatar,
+    required String authorUsername,
+    required String text,
+    required List<String> media,
+    required List<String> mediaTypes,
+    required String type,
+    String? thumbnailUrl,
+    String? songId,
+    String? songTitle,
+    String? songArtist,
+    String privacy = 'public',
+    bool commentsDisabled = false,
+    bool allowRemix = true,
+    bool hideLikes = false,
+    bool highQuality = true,
+    bool saveToDevice = false,
+  }) async {
+    if (!FirebaseService.isReady) return null;
+    try {
+      await FirebaseService.firestore.collection('posts').doc(id).set({
+        'id': id,
+        'authorId': authorId,
+        'authorName': authorName,
+        'authorAvatar': authorAvatar,
+        'authorUsername': authorUsername,
+        'text': text,
+        'media': media,
+        'mediaDetails': [
+          for (var i = 0; i < media.length; i++)
+            {
+              'type': i < mediaTypes.length ? mediaTypes[i] : 'image',
+              'url': media[i],
+            },
+        ],
+        'type': type,
+        'thumbnailUrl': thumbnailUrl,
+        'songId': songId,
+        'songTitle': songTitle,
+        'songArtist': songArtist,
+        'privacy': privacy,
+        'commentsDisabled': commentsDisabled,
+        'allowRemix': allowRemix,
+        'hideLikes': hideLikes,
+        'highQuality': highQuality,
+        'saveToDevice': saveToDevice,
+        'likesCount': 0,
+        'commentsCount': 0,
+        'repostsCount': 0,
+        'favoritesCount': 0,
+        'viewsCount': 0,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      return id;
+    } catch (_) {
+      return null;
+    }
+  }
 }

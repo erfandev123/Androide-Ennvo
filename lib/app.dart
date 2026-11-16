@@ -81,34 +81,16 @@ class _EnnvoAppState extends ConsumerState<EnnvoApp> {
 
 /// Shown while the persisted session is being restored.
 ///
-/// The brand mark breathes on the black the app opens on — the same screen
-/// the Android launcher hands over to, so the app never flashes.
+/// The purple and the mark of the Android window, so the hand over from the
+/// launcher is invisible — and the mark is seen exactly once.
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Colors.black,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            EnnvoBrandMark(size: 104),
-            SizedBox(height: 18),
-            Text(
-              'Ennvo',
-              style: TextStyle(
-                fontFamily: 'Outfit',
-                fontSize: 19,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-                color: Color(0x8CFFFFFF),
-              ),
-            ),
-          ],
-        ),
-      ),
+      backgroundColor: kEnnvoPurple,
+      body: EnnvoSplash(),
     );
   }
 }

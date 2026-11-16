@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The deeper sky blue that sits behind the adaptive launcher icon, so
-         the lighter blue of the mark itself still reads. -->
-    <color name="ic_launcher_background">#0284C7</color>
+    <!-- The Ennvo purple. It is the background of the launch screen, so the
+         hand over from the Android window to the Flutter splash is
+         invisible. -->
+    <color name="launch_background">#5B21B6</color>
 
-    <!-- The launch screen background. It is the same black the app opens
-         on, so there is no white flash before Flutter draws its first
-         frame. -->
-    <color name="launch_background">#000000</color>
+    <!-- The deeper purple that sits behind the adaptive launcher icon, so
+         the white mark of the icon still reads. -->
+    <color name="ic_launcher_background">#5B21B6</color>
 </resources>

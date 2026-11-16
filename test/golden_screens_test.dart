@@ -19,12 +19,14 @@ import 'package:ennvo/core/providers.dart';
 import 'package:ennvo/core/storage/app_prefs.dart';
 import 'package:ennvo/core/theme/app_theme.dart';
 import 'package:ennvo/features/auth/auth_page.dart';
+import 'package:ennvo/features/create/camera_page.dart';
 import 'package:ennvo/features/messages/messages_page.dart';
 import 'package:ennvo/features/reels/models/reel_comment.dart';
 import 'package:ennvo/features/reels/reels_page.dart';
 import 'package:ennvo/features/reels/widgets/comments_sheet.dart';
 import 'package:ennvo/features/reels/widgets/share_sheet.dart';
 import 'package:ennvo/features/shell/app_shell.dart';
+import 'package:ennvo/shared/widgets/brand_splash.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -68,6 +70,27 @@ Future<AppPrefs> _buildPrefs({bool dark = false}) async {
   );
   final instance = await SharedPreferences.getInstance();
   return AppPrefs(instance);
+}
+
+/// Loads the pictures of the app into the picture cache.
+///
+/// The loading of an asset is real file reading, and a widget test only
+/// lets it happen inside `runAsync`. Without this the pictures are simply
+/// not on the screen of the golden.
+Future<void> _precacheAssets(
+  WidgetTester tester,
+  List<String> names,
+) async {
+  await tester.runAsync(() async {
+    for (final name in names) {
+      try {
+        await precacheImage(AssetImage(name), tester.binding.rootElement!);
+      } catch (_) {
+        // A missing picture must not fail the render.
+      }
+    }
+  });
+  await tester.pump(const Duration(milliseconds: 200));
 }
 
 Widget _harness(AppPrefs prefs, Widget child, {bool dark = false}) {
@@ -135,6 +158,10 @@ void main() {
     await tester.pumpWidget(_harness(prefs, const ReelsPage()));
     // Let the welcome card time out so the golden shows the feed itself.
     await tester.pump(const Duration(milliseconds: 5000));
+    await _precacheAssets(tester, const [
+      'assets/demo/reels/r1.jpg',
+      'assets/demo/reels/r2.jpg',
+    ]);
 
     if (_isCI) return;
     await expectLater(
@@ -232,13 +259,124 @@ void main() {
 
     final prefs = await _buildPrefs();
     await tester.pumpWidget(_harness(prefs, const AppShell()));
-    // Let the welcome card time out so the feed itself is visible.
+    // Let the feed settle so the picture itself is visible.
     await tester.pump(const Duration(milliseconds: 5000));
 
     if (_isCI) return;
     await expectLater(
       find.byType(AppShell),
       matchesGoldenFile('goldens/shell_reels.png'),
+    );
+  });
+
+  testWidgets('the splash screen', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs();
+    await tester.pumpWidget(
+      _harness(
+        prefs,
+        const Scaffold(
+          backgroundColor: kEnnvoPurple,
+          body: EnnvoSplash(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    await _precacheAssets(tester, const [
+      'assets/brand/ennvo_logo_on_black.png',
+    ]);
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(EnnvoSplash),
+      matchesGoldenFile('goldens/splash.png'),
+    );
+  });
+
+  testWidgets('the comment sheet in dark mode', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs(dark: true);
+    await tester.pumpWidget(
+      _harness(
+        prefs,
+        Scaffold(
+          backgroundColor: Colors.black,
+          body: ReelCommentsSheet(
+            comments: demoComments('demo'),
+            onSubmit: (text, replyTo) async {},
+            onToggleLike: (comment) {},
+            onDelete: (comment) {},
+          ),
+        ),
+        dark: true,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(ReelCommentsSheet),
+      matchesGoldenFile('goldens/comments_sheet_dark.png'),
+    );
+  });
+
+  testWidgets('the share sheet in dark mode', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs(dark: true);
+    await tester.pumpWidget(
+      _harness(
+        prefs,
+        Scaffold(
+          backgroundColor: Colors.black,
+          body: ReelShareSheet(
+            targets: const [
+              ShareTarget(id: '1', name: 'Arif Hasan', isOnline: true),
+              ShareTarget(id: '2', name: 'Tania Akter'),
+              ShareTarget(id: '3', name: 'Rafi Ahmed', isOnline: true),
+              ShareTarget(id: '4', name: 'Mim'),
+              ShareTarget(id: '5', name: 'Nila Rahman'),
+            ],
+            onSend: (selected) async {},
+            onRepost: () {},
+            onSave: () {},
+            onCopyLink: () async {},
+            onAddStory: () {},
+          ),
+        ),
+        dark: true,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(ReelShareSheet),
+      matchesGoldenFile('goldens/share_sheet_dark.png'),
+    );
+  });
+
+  testWidgets('the upload camera', (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final prefs = await _buildPrefs();
+    await tester.pumpWidget(_harness(prefs, const CameraPage()));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    if (_isCI) return;
+    await expectLater(
+      find.byType(CameraPage),
+      matchesGoldenFile('goldens/camera.png'),
     );
   });
 }

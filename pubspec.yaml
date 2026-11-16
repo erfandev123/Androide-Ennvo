@@ -17,9 +17,18 @@ dependencies:
   # Networking
   http: ^1.2.2
 
+  # The signature of the Cloudflare R2 uploads.
+  crypto: ^3.0.6
+
   # Media
   cached_network_image: ^4.0.7
   video_player: ^2.14.1
+
+  # Voice notes - the recorder of the comment composer.
+  record: ^7.2.0
+
+  # The camera and the photo picker of the composer.
+  image_picker: ^1.1.2
 
   # Icons — the SVG renderer keeps the original Lucide and custom icon
   # markup, so the native build draws the same glyphs as the web build.
@@ -45,7 +54,8 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/brand/
+    - assets/brand/ennvo_logo.png
+    - assets/brand/ennvo_logo_on_black.png
     - assets/fonts/
     - assets/demo/reels/r1.jpg
     - assets/demo/reels/r2.jpg

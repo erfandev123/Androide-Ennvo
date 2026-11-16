@@ -18,6 +18,7 @@
 // ============================================================================
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -35,12 +36,14 @@ import '../../data/services/chat_service.dart';
 import '../../data/services/comment_service.dart';
 import '../../data/services/firebase_service.dart';
 import '../../data/services/reels_service.dart';
+import '../../data/services/upload_service.dart';
 import '../../shared/icons/lucide_icons.dart';
 import 'demo_reels.dart';
 import 'models/reel_comment.dart';
 import 'widgets/comments_sheet.dart';
 import 'widgets/reel_card.dart';
 import 'widgets/reel_preloader.dart';
+import 'widgets/reel_video.dart';
 import 'widgets/share_sheet.dart';
 
 class ReelsPage extends ConsumerStatefulWidget {
@@ -65,8 +68,18 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   final ValueNotifier<double> _progress = ValueNotifier<double>(0);
 
   bool _muted = true;
-  bool _showWelcome = true;
   String _tab = 'forYou';
+
+  /// The reel on screen is stopped.
+  ///
+  /// The controls of the reel - the timeline and the sound button - only
+  /// show while it is stopped, so a running reel is nothing but the
+  /// picture.
+  bool _paused = false;
+
+  /// The playback handle of the feed: the speed of the 2x hold and the
+  /// position the timeline drags to.
+  final ReelPlayback _playback = ReelPlayback();
 
   /// The feed is held still — a sheet is open over it, or the app went to
   /// the background. The video keeps its position and the sound stops.
@@ -82,7 +95,6 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   final Map<String, List<ReelComment>> _comments = <String, List<ReelComment>>{};
 
   Timer? _dwellTimer;
-  Timer? _welcomeTimer;
 
   @override
   void initState() {
@@ -91,18 +103,13 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     WidgetsBinding.instance.addObserver(this);
 
     _seen.addAll(ref.read(prefsProvider).seenReels);
-
-    // The welcome card dismisses itself after 4200ms.
-    _welcomeTimer = Timer(const Duration(milliseconds: 4200), () {
-      if (mounted) setState(() => _showWelcome = false);
-    });
   }
 
   @override
   void dispose() {
     _dwellTimer?.cancel();
-    _welcomeTimer?.cancel();
     _progress.dispose();
+    _playback.dispose();
     _pageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -127,8 +134,13 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     _dwellTimer?.cancel();
     setState(() {
       _activeIndex = index;
+      // A new reel starts running.
+      _paused = false;
     });
     _progress.value = 0;
+
+    // The 2x hold belongs to the reel that was on screen.
+    _playback.setSpeed(1);
 
     if (index >= reels.length) return;
     final reel = reels[index];
@@ -283,11 +295,16 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                   muted: _muted,
                   isSuspended: _suspended,
                   song: index == _activeIndex ? song : null,
+                  playback: _playback,
                   onProgress: (value) {
                     // Only the timeline listens to this — the feed itself is
                     // never rebuilt for it.
                     if (index != _activeIndex || !mounted) return;
                     _progress.value = value;
+                  },
+                  onPauseChanged: (paused) {
+                    if (index != _activeIndex || !mounted) return;
+                    setState(() => _paused = paused);
                   },
                   onToggleLike: () {
                     HapticFeedback.lightImpact();
@@ -358,14 +375,21 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
           // --- the timeline -------------------------------------------
           // It sits right on top of the floating navigation bar, and it
           // moves on its own: the feed is never rebuilt while a video plays.
-          Positioned(
-            left: 18,
-            right: 18,
-            bottom:
-                AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
-                4,
-            child: _Timeline(value: _progress),
-          ),
+          //
+          // It only shows while the reel is stopped, and it can be dragged:
+          // the reel follows the finger.
+          if (_paused)
+            Positioned(
+              left: 18,
+              right: 18,
+              bottom:
+                  AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
+                  4,
+              child: _Timeline(
+                value: _progress,
+                onSeek: (fraction) => _playback.seek(fraction),
+              ),
+            ),
 
           // --- the PC up / down controller ----------------------------
           if (MediaQuery.sizeOf(context).width >= 900)
@@ -379,16 +403,6 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                   canGoDown: _activeIndex < reels.length - 1,
                   onUp: () => _goTo(_activeIndex - 1),
                   onDown: () => _goTo(_activeIndex + 1),
-                ),
-              ),
-            ),
-
-          // --- the welcome card ---------------------------------------
-          if (_showWelcome)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: _WelcomeOverlay(
-                  onDismiss: () => setState(() => _showWelcome = false),
                 ),
               ),
             ),
@@ -411,6 +425,8 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
   void _openComments(AppPost post) {
     _suspend();
+    final user = ref.read(authControllerProvider).user;
+
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -426,8 +442,16 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
           return ReelCommentsSheet(
             comments: comments,
             replierName: post.authorName,
+            avatarUrl: user?.avatar ?? '',
+            userName: user?.name ?? 'You',
             onSubmit: (text, replyTo) async {
               await _addComment(post, text, replyTo);
+            },
+            onVoice: (path, durationMs, replyTo) async {
+              await _addVoiceComment(post, path, durationMs, replyTo);
+            },
+            onPhoto: (file, replyTo) async {
+              await _addPhotoComment(post, file, replyTo);
             },
             onToggleLike: (comment) {
               _toggleCommentLike(post, comment);
@@ -460,6 +484,79 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
   /// Writes a comment — or a reply — and shows it at once.
   Future<void> _addComment(AppPost post, String text, ReelComment? replyTo) async {
+    await _writeComment(
+      post,
+      text: text,
+      replyTo: replyTo,
+      kind: CommentKind.text,
+    );
+  }
+
+  /// Sends a voice note and shows it at once.
+  Future<void> _addVoiceComment(
+    AppPost post,
+    String path,
+    int durationMs,
+    ReelComment? replyTo,
+  ) async {
+    String? url;
+    try {
+      final uploaded = await UploadService.uploadFile(
+        file: File(path),
+        folder: 'voice',
+        contentType: 'audio/mp4',
+      );
+      url = uploaded.url;
+    } catch (_) {
+      url = null;
+    }
+
+    await _writeComment(
+      post,
+      text: 'Voice note',
+      replyTo: replyTo,
+      kind: CommentKind.voice,
+      mediaUrl: url,
+      audioDuration: durationMs,
+    );
+  }
+
+  /// Attaches a picture and shows it at once.
+  Future<void> _addPhotoComment(
+    AppPost post,
+    File file,
+    ReelComment? replyTo,
+  ) async {
+    String? url;
+    try {
+      final uploaded = await UploadService.uploadFile(
+        file: file,
+        folder: 'comments',
+        contentType: 'image/jpeg',
+      );
+      url = uploaded.url;
+    } catch (_) {
+      url = null;
+    }
+
+    await _writeComment(
+      post,
+      text: 'Photo',
+      replyTo: replyTo,
+      kind: CommentKind.photo,
+      mediaUrl: url,
+    );
+  }
+
+  /// Writes a comment of any kind and shows it at once.
+  Future<void> _writeComment(
+    AppPost post, {
+    required String text,
+    required ReelComment? replyTo,
+    required CommentKind kind,
+    String? mediaUrl,
+    int? audioDuration,
+  }) async {
     final user = ref.read(authControllerProvider).user;
 
     final written = await CommentService.add(
@@ -469,6 +566,9 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       authorName: user?.name ?? 'You',
       authorAvatar: user?.avatar ?? '',
       parentId: replyTo?.id,
+      kind: kind.name,
+      mediaUrl: mediaUrl,
+      audioDuration: audioDuration,
     );
 
     // The live list follows the write on its own. Only when the write did
@@ -480,9 +580,11 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       authorId: user?.uid ?? 'me',
       authorName: user?.name ?? 'You',
       authorAvatar: user?.avatar ?? '',
-      kind: CommentKind.text,
+      kind: kind,
       text: text,
       createdAt: DateTime.now(),
+      mediaUrl: mediaUrl,
+      audioDuration: audioDuration,
       likesCount: 0,
       isOwn: true,
       replyToId: replyTo?.id,
@@ -599,6 +701,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       barrierColor: Colors.black.withValues(alpha: 0.4),
       builder: (_) => ReelShareSheet(
         targets: targets,
+        isOwner: user?.uid != null && user!.uid == post.authorId,
         onSend: (selected) async {
           await _sendReel(post, selected, user?.uid ?? '');
         },
@@ -610,6 +713,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
           );
         },
         onAddStory: () {},
+        onDownload: () {},
       ),
     ).whenComplete(_resume);
   }
@@ -829,205 +933,66 @@ class _PagerButton extends StatelessWidget {
 }
 
 // ============================================================================
-//  The welcome card
-// ============================================================================
-class _WelcomeOverlay extends StatelessWidget {
-  const _WelcomeOverlay({required this.onDismiss});
-
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onDismiss,
-      child: Container(
-        color: Colors.black.withValues(alpha: 0.4),
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: 1),
-          duration: EnnvoDurations.welcomeOverlay,
-          curve: EnnvoCurves.iosSpring,
-          builder: (context, value, child) {
-            final scale = 0.92 + (0.08 * value);
-            return Opacity(
-              opacity: value.clamp(0.0, 1.0),
-              child: Transform.translate(
-                offset: Offset(0, 12 * (1 - value)),
-                child: Transform.scale(scale: scale, child: child),
-              ),
-            );
-          },
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 360),
-            padding: const EdgeInsets.all(26),
-            decoration: BoxDecoration(
-              color: const Color(0xE60B101E),
-              borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-              boxShadow: AppShadows.welcomeCard,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      width: 76,
-                      height: 76,
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: AppGradients.iconRing,
-                        boxShadow: AppShadows.iconRing,
-                      ),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Color(0xFF0A0F1D),
-                        ),
-                        alignment: Alignment.center,
-                        child: const Text(
-                          'e',
-                          style: TextStyle(
-                            fontFamily: 'Outfit',
-                            fontSize: 40,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            height: 1,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: -4,
-                      right: -4,
-                      child: const LucideIcon(
-                        LucideIcons.sparkles,
-                        size: 20,
-                        strokeWidth: 1.8,
-                        color: Color(0xFFFCD34D),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0x1A0EA5E9),
-                    borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(color: const Color(0x400EA5E9)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFF38BDF8),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Welcome to Ennvo',
-                        style: EnnvoText.tiny.copyWith(
-                          color: const Color(0xFF7DD3FC),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Your feed, ready',
-                  textAlign: TextAlign.center,
-                  style: EnnvoText.pageHero,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Reels, stories and the people you follow — all in one place.',
-                  textAlign: TextAlign.center,
-                  style: EnnvoText.body.copyWith(
-                    color: Colors.white.withValues(alpha: 0.75),
-                  ),
-                ),
-                const SizedBox(height: 22),
-                Container(
-                  width: double.infinity,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [
-                        Color(0xFF0EA5E9),
-                        Color(0xFF2563EB),
-                        Color(0xFF4F46E5),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                    boxShadow: AppShadows.ctaSky,
-                  ),
-                  alignment: Alignment.center,
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.play_arrow_rounded,
-                        size: 18,
-                        color: Colors.white,
-                      ),
-                      SizedBox(width: 8),
-                      Text(
-                        'Start watching',
-                        style: TextStyle(
-                          fontFamily: 'PlusJakartaSans',
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ============================================================================
 //  The timeline of the active reel
+//
+//  It shows how far the reel has played, and it can be dragged: the reel
+//  follows the finger. The drag is handled by the page, so the feed is
+//  never rebuilt while the video plays.
 // ============================================================================
 class _Timeline extends StatelessWidget {
-  const _Timeline({required this.value});
+  const _Timeline({required this.value, required this.onSeek});
 
   /// The progress of the active video.
   final ValueListenable<double> value;
 
+  /// The reel was dragged to a new position.
+  final ValueChanged<double> onSeek;
+
+  /// The height of the line.
+  static const double _thickness = 2;
+
+  /// The height of the touch area. It is taller than the line, so the
+  /// timeline is easy to grab on a phone.
+  static const double _touch = 16;
+
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
-      child: ValueListenableBuilder<double>(
-        valueListenable: value,
-        builder: (context, progress, _) {
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final width = constraints.maxWidth;
+
+          void seekTo(double dx) {
+            if (width <= 0) return;
+            onSeek((dx / width).clamp(0.0, 1.0));
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (details) => seekTo(details.localPosition.dx),
+            onHorizontalDragStart: (details) =>
+                seekTo(details.localPosition.dx),
+            onHorizontalDragUpdate: (details) =>
+                seekTo(details.localPosition.dx),
             child: SizedBox(
-              height: 2,
-              child: LinearProgressIndicator(
-                value: progress,
-                backgroundColor: Colors.white.withValues(alpha: 0.22),
-                valueColor: const AlwaysStoppedAnimation(Colors.white),
+              height: _touch,
+              child: Center(
+                child: ValueListenableBuilder<double>(
+                  valueListenable: value,
+                  builder: (context, progress, _) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: SizedBox(
+                        height: _thickness,
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          backgroundColor: Colors.white.withValues(alpha: 0.22),
+                          valueColor: const AlwaysStoppedAnimation(Colors.white),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           );

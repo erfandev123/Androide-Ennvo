@@ -5,30 +5,48 @@
 //
 //  The composer offers:
 //    • a caption field
-//    • a multi photo picker with local previews
+//    • the picture that was shot in the camera
 //    • a "big text" background picker — the fourteen gradients the web app
 //      ships, plus a custom colour
 //    • the advanced settings sheet: comments disabled, privacy, hidden
 //      likes, remixes, high quality and saving to the device
+//
+//  The share button uploads the file to Cloudflare R2 and writes the post
+//  to Firestore, the same two steps the web app takes.
 // ============================================================================
 
-import 'package:flutter/material.dart';
+import 'dart:io';
 
-import '../../core/theme/motion.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../../data/services/post_service.dart';
+import '../../data/services/upload_service.dart';
 import '../../shared/icons/lucide_icons.dart';
 import '../../shared/widgets/buttons.dart';
 import '../../shared/widgets/inputs.dart';
 
-class CreatePage extends StatefulWidget {
-  const CreatePage({super.key});
+class CreatePage extends ConsumerStatefulWidget {
+  const CreatePage({
+    super.key,
+    this.mediaFile,
+    this.isReel = false,
+  });
+
+  /// The picture that was shot or picked in the camera.
+  final File? mediaFile;
+
+  /// The media is a reel and not a post.
+  final bool isReel;
 
   @override
-  State<CreatePage> createState() => _CreatePageState();
+  ConsumerState<CreatePage> createState() => _CreatePageState();
 }
 
-class _CreatePageState extends State<CreatePage> {
+class _CreatePageState extends ConsumerState<CreatePage> {
   final TextEditingController _caption = TextEditingController();
 
   /// The selected big-text background id — one of
@@ -36,6 +54,15 @@ class _CreatePageState extends State<CreatePage> {
   String _background = 'none';
   Color _customColor = const Color(0xFF2563EB);
   bool _showAdvanced = false;
+
+  /// The upload is running.
+  bool _uploading = false;
+
+  /// How far the upload has come.
+  double _progress = 0;
+
+  /// The picture was sent.
+  bool _published = false;
 
   // --- advanced settings, matching the web app's object --------------
   bool _commentsDisabled = false;
@@ -80,7 +107,7 @@ class _CreatePageState extends State<CreatePage> {
             child: Row(
               children: [
                 IconButton(
-                  onPressed: () {},
+                  onPressed: () => Navigator.of(context).maybePop(),
                   icon: LucideIcon(
                     LucideIcons.arrowLeft,
                     size: 22,
@@ -91,17 +118,30 @@ class _CreatePageState extends State<CreatePage> {
                 ),
                 Expanded(
                   child: Text(
-                    'Create',
+                    widget.isReel ? 'New reel' : 'Create',
                     style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
                   ),
                 ),
+                if (_uploading)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: _progress == 0 ? null : _progress,
+                        color: t.accent,
+                      ),
+                    ),
+                  ),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () {},
+                  onTap: _uploading ? null : _publish,
                   child: Text(
                     'Share',
                     style: EnnvoText.bodySemi.copyWith(
-                      color: t.accent,
+                      color: _uploading ? t.textTertiary : t.accent,
                       fontSize: 14.5,
                     ),
                   ),
@@ -116,8 +156,9 @@ class _CreatePageState extends State<CreatePage> {
               children: [
                 // --- the media area ------------------------------------
                 AspectRatio(
-                  aspectRatio: 1,
+                  aspectRatio: widget.isReel ? 9 / 16 : 1,
                   child: Container(
+                    clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(AppRadius.xxl),
                       gradient: _backgroundGradient(),
@@ -125,7 +166,16 @@ class _CreatePageState extends State<CreatePage> {
                     ),
                     child: Stack(
                       children: [
-                        if (_background == 'none')
+                        if (widget.mediaFile != null)
+                          Positioned.fill(
+                            child: Image.file(
+                              widget.mediaFile!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  const SizedBox.shrink(),
+                            ),
+                          ),
+                        if (widget.mediaFile == null && _background == 'none')
                           Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
@@ -279,6 +329,68 @@ class _CreatePageState extends State<CreatePage> {
         ],
       ),
     );
+  }
+
+  /// Uploads the picture and writes the post.
+  Future<void> _publish() async {
+    if (_uploading || _published) return;
+
+    final file = widget.mediaFile;
+    final user = ref.read(authControllerProvider).user;
+
+    setState(() {
+      _uploading = true;
+      _progress = 0;
+    });
+
+    String? url;
+    if (file != null) {
+      try {
+        final uploaded = await UploadService.uploadFile(
+          file: file,
+          folder: widget.isReel ? 'reels' : 'posts',
+          onProgress: (sent, total) {
+            if (!mounted) return;
+            if (total <= 0) return;
+            setState(() => _progress = sent / total);
+          },
+        );
+        url = uploaded.url;
+      } catch (_) {
+        url = null;
+      }
+    }
+
+    // The post is written even when the upload did not make it: the text
+    // of a post is worth more than its picture.
+    final id = 'post-${DateTime.now().millisecondsSinceEpoch}';
+    final written = await PostService.create(
+      id: id,
+      authorId: user?.uid ?? 'me',
+      authorName: user?.name ?? 'You',
+      authorAvatar: user?.avatar ?? '',
+      authorUsername: user?.username ?? '',
+      text: _caption.text.trim(),
+      media: url == null ? const <String>[] : <String>[url],
+      mediaTypes: url == null ? const <String>[] : const <String>['image'],
+      type: widget.isReel ? 'reel' : 'post',
+      privacy: _privacy,
+      commentsDisabled: _commentsDisabled,
+      allowRemix: _allowRemix,
+      hideLikes: _hideLikes,
+      highQuality: _highQuality,
+      saveToDevice: _saveToDevice,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _uploading = false;
+      _published = written != null;
+    });
+
+    if (written != null) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   Gradient? _backgroundGradient() {

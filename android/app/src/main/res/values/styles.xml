@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off.
-         The window is black in both modes: the app itself opens on black, so a white
-         window would flash before the first Flutter frame arrives. -->
+
+         The window is the Ennvo purple in both modes: the Flutter splash that
+         follows paints the same purple and the same logo, so the app opens
+         on one uninterrupted screen. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>

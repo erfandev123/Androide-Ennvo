@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Android launcher icons and the launch-screen logo.
+"""Generate the Android launcher icons.
 
 `assets/brand/ennvo_logo.png` is the single source of truth for the brand
 mark. This script resamples it into every density Android asks for:
@@ -7,7 +7,6 @@ mark. This script resamples it into every density Android asks for:
     * `mipmap-*/ic_launcher.png`            — the legacy launcher icon
     * `mipmap-*/ic_launcher_foreground.png` — the adaptive icon foreground
     * `mipmap-*/ic_launcher_monochrome.png` — the themed (monochrome) icon
-    * `drawable-*/splash_logo.png`           — the launch-screen mark
 
 Everything is written with the standard library only, so the icons can be
 regenerated on any machine — including a CI runner — without a design tool.
@@ -15,6 +14,9 @@ regenerated on any machine — including a CI runner — without a design tool.
 Run it from the project root:
 
     python tooling/make_launcher_icons.py
+
+`tooling/make_brand_assets.py` does the same and additionally writes the
+black brand tile the splash screen uses.
 """
 
 from __future__ import annotations
@@ -40,10 +42,6 @@ LEGACY_DENSITIES = {
 # 72dp is guaranteed to be visible, so the mark is drawn at 62% of it.
 ADAPTIVE_CANVAS_DP = 108
 ADAPTIVE_SCALE = 0.62
-
-# The launch screen shows the mark at 96dp.
-SPLASH_DP = 96
-
 
 # ---------------------------------------------------------------------------
 #  A tiny PNG reader / writer (8 bit, non interlaced, RGB or RGBA)
@@ -288,15 +286,6 @@ def main() -> None:
         )
         path = os.path.join(RES, f"mipmap-{density}", "ic_launcher_monochrome.png")
         write_png(path, canvas_size, canvas_size, themed)
-
-    # --- the launch screen mark --------------------------------------
-    for density, legacy in LEGACY_DENSITIES.items():
-        factor = legacy / 48.0
-        size = int(round(SPLASH_DP * factor))
-        scaled = resize(width, height, pixels, size)
-        path = os.path.join(RES, f"drawable-{density}", "splash_logo.png")
-        write_png(path, size, size, scaled)
-        print(f"  {os.path.relpath(path, ROOT)}")
 
 
 if __name__ == "__main__":

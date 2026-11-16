@@ -631,7 +631,10 @@ class _Avatar extends StatelessWidget {
 }
 
 /// The like / comment / repost / share button in the action row.
-class _ActionButton extends StatefulWidget {
+///
+/// It does not move when it is pressed: the web app hard-disables the
+/// `:active` scale, and the native port follows it.
+class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.icon,
     required this.onTap,
@@ -645,42 +648,28 @@ class _ActionButton extends StatefulWidget {
   final String? semanticLabel;
 
   @override
-  State<_ActionButton> createState() => _ActionButtonState();
-}
-
-class _ActionButtonState extends State<_ActionButton> {
-  bool _popped = false;
-
-  @override
   Widget build(BuildContext context) {
     final t = context.tokens;
 
     return Semantics(
       button: true,
-      label: widget.semanticLabel,
+      label: semanticLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: widget.onTap == null
+        onTap: onTap == null
             ? null
             : () {
-                setState(() => _popped = true);
                 HapticFeedback.lightImpact();
-                widget.onTap!.call();
+                onTap!.call();
               },
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            AnimatedScale(
-              // The web app springs the icon from 0.75 to 1.
-              scale: _popped ? 1 : 0.92,
-              duration: const Duration(milliseconds: 260),
-              curve: const SpringCurve(EnnvoSprings.likePop),
-              child: widget.icon,
-            ),
-            if (widget.count != null) ...[
+            icon,
+            if (count != null) ...[
               const SizedBox(width: 6),
               Text(
-                _formatCount(widget.count!),
+                _formatCount(count!),
                 style: EnnvoText.count.copyWith(color: t.textPrimary),
               ),
             ],

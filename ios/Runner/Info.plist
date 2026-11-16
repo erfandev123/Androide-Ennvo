@@ -26,6 +26,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ennvo uses the microphone so you can send a voice note in the comments.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Ennvo uses the camera so you can shoot a reel.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ennvo uses your photos so you can attach them to a post.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

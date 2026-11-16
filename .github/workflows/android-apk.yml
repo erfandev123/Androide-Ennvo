@@ -85,15 +85,31 @@ jobs:
           echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
       # --- build --------------------------------------------------------
+      # The Cloudflare R2 credentials are compiled into the build. They are
+      # secrets of the repository, so they never land in the source.
+      #
+      # A build without them still works: the uploads report that they are
+      # not configured and the rest of the app runs.
       - name: Build release APKs
         if: ${{ inputs.build_type != 'debug' }}
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          CLOUDFLARE_R2_PUBLIC_DOMAIN: ${{ secrets.CLOUDFLARE_R2_PUBLIC_DOMAIN }}
         run: |
           flutter build apk \
             --release \
             --split-per-abi \
             --build-name "ennvo-${{ steps.version.outputs.name }}.apk" \
             --obfuscate \
-            --split-debug-info=build/symbols
+            --split-debug-info=build/symbols \
+            --dart-define=CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
+            --dart-define=CLOUDFLARE_R2_ACCESS_KEY_ID="$CLOUDFLARE_R2_ACCESS_KEY_ID" \
+            --dart-define=CLOUDFLARE_R2_SECRET_ACCESS_KEY="$CLOUDFLARE_R2_SECRET_ACCESS_KEY" \
+            --dart-define=CLOUDFLARE_R2_BUCKET_NAME="$CLOUDFLARE_R2_BUCKET_NAME" \
+            --dart-define=CLOUDFLARE_R2_PUBLIC_DOMAIN="$CLOUDFLARE_R2_PUBLIC_DOMAIN"
 
       - name: Build debug APK
         if: ${{ inputs.build_type == 'debug' }}
