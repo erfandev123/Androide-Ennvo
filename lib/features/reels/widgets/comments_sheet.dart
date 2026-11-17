@@ -33,6 +33,7 @@ import '../../../data/services/voice_recorder.dart';
 import '../../../shared/icons/ion_icons.dart';
 import '../../../shared/icons/lucide_icons.dart';
 import '../models/reel_comment.dart';
+import 'comment_attachments.dart';
 
 /// The emoji the sticker tray offers.
 const List<String> kStickerEmoji = [
@@ -42,17 +43,35 @@ const List<String> kStickerEmoji = [
   '🎨', '🚀', '💪', '🌚', '🐶', '🌈',
 ];
 
+/// Live GIF stickers, the ones the web app ships through GIPHY.
+const List<String> kStickerGifs = [
+  'https://media.giphy.com/media/3o7TKMt1VVNkHV2PaE/giphy.gif',
+  'https://media.giphy.com/media/l0HlHFRbmaZtBRhXG/giphy.gif',
+  'https://media.giphy.com/media/26BRv0ThflsHCqDrG/giphy.gif',
+  'https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif',
+  'https://media.giphy.com/media/5yLgoc7NuyJoLYUYcY/giphy.gif',
+  'https://media.giphy.com/media/3o6ZsYhFmzFHhtwY2U/giphy.gif',
+];
+
+/// Whether a sticker is a live GIF rather than an emoji.
+bool _isGif(String value) =>
+    value.toLowerCase().endsWith('.gif') ||
+    value.contains('media.giphy.com');
+
 class ReelCommentsSheet extends StatefulWidget {
   const ReelCommentsSheet({
     super.key,
     required this.comments,
     required this.onSubmit,
+    this.onSubmitTyped,
     required this.onToggleLike,
     required this.onDelete,
     this.onLoadMore,
     this.replierName = '',
     this.avatarUrl = '',
     this.userName = '',
+    this.postAuthorId = '',
+    this.currentUserId = '',
     this.onVoice,
     this.onPhoto,
     this.onStickerSelected,
@@ -60,6 +79,10 @@ class ReelCommentsSheet extends StatefulWidget {
 
   final List<ReelComment> comments;
   final Future<void> Function(String text, ReelComment? replyTo) onSubmit;
+
+  /// The same submit, but it carries the kind: text, sticker, photo.
+  final Future<void> Function(String text, ReelComment? replyTo, String kind)?
+  onSubmitTyped;
   final void Function(ReelComment comment) onToggleLike;
   final void Function(ReelComment comment) onDelete;
   final VoidCallback? onLoadMore;
@@ -70,6 +93,11 @@ class ReelCommentsSheet extends StatefulWidget {
 
   /// The name of the user.
   final String userName;
+
+  /// The author of the reel or the post. Together with [currentUserId]
+  /// this decides who may delete a comment: its author or the owner.
+  final String postAuthorId;
+  final String currentUserId;
 
   /// A voice note is sent.
   final Future<void> Function(String path, int durationMs, ReelComment? replyTo)?
@@ -132,7 +160,12 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
     if (text.isEmpty) return;
 
     setState(() => _sending = true);
-    await widget.onSubmit(text, _replyingTo);
+    final kind = _isGif(text) ? 'sticker' : 'text';
+    if (widget.onSubmitTyped != null) {
+      await widget.onSubmitTyped!(text, _replyingTo, kind);
+    } else {
+      await widget.onSubmit(text, _replyingTo);
+    }
     if (!mounted) return;
     setState(() {
       _sending = false;
@@ -424,6 +457,9 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
                               setState(() => _replyingTo = comment);
                               _focus.requestFocus();
                             },
+                            canDelete:
+                                comment.authorId == widget.currentUserId ||
+                                widget.postAuthorId == widget.currentUserId,
                           );
                         },
                       ),
@@ -432,7 +468,7 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
               // --- the sticker tray ------------------------------------
               if (_showStickers && !expanded)
                 Container(
-                  height: 108,
+                  height: 134,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(
                     color: t.surfaceAlt,
@@ -442,6 +478,24 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
                     crossAxisCount: 6,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     children: [
+                      // Live GIF stickers first, the way the web app does.
+                      for (final gif in kStickerGifs)
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _pickSticker(gif),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              gif,
+                              fit: BoxFit.cover,
+                              cacheWidth: 160,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.gif_box_outlined,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ),
                       for (final emoji in kStickerEmoji)
                         GestureDetector(
                           behavior: HitTestBehavior.opaque,
@@ -571,75 +625,67 @@ class _Composer extends StatelessWidget {
           const SizedBox(width: 10),
 
           // --- the input ---------------------------------------------
+          // No pill, no rounded box, no outline: just the text on the
+          // surface, the way the composer reads in the web app.
           Expanded(
-            child: Container(
-              height: 46,
-              padding: const EdgeInsets.only(left: 14, right: 4),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(23),
-                // A soft filled field. No hairline outline: the old ring
-                // around the hint looked like a badge, not like an input.
-                color: t.surfaceAlt,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      onChanged: onChanged,
-                      onSubmitted: (_) => onSend(),
-                      textInputAction: TextInputAction.send,
-                      style: EnnvoText.body.copyWith(
-                        color: t.textPrimary,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    onChanged: onChanged,
+                    onSubmitted: (_) => onSend(),
+                    textInputAction: TextInputAction.send,
+                    style: EnnvoText.body.copyWith(
+                      color: t.textPrimary,
+                      fontSize: 14.5,
+                    ),
+                    cursorColor: t.accent,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                      hintText: 'Add a comment',
+                      hintStyle: EnnvoText.body.copyWith(
+                        color: t.textTertiary,
                         fontSize: 14.5,
-                      ),
-                      cursorColor: t.accent,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                        hintText: 'Add a comment',
-                        hintStyle: EnnvoText.body.copyWith(
-                          color: t.textTertiary,
-                          fontSize: 14,
-                        ),
                       ),
                     ),
                   ),
+                ),
 
-                  // The sticker, the photo and the voice buttons go away
-                  // while the keyboard is up: the separate box carries the
-                  // input and the send button and nothing else.
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 140),
-                    curve: Curves.easeOut,
-                    child: expanded
-                        ? const SizedBox.shrink()
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _ComposerIcon(
-                                icon: LucideIcons.smile,
-                                active: stickerActive,
-                                onTap: onSticker,
-                                semanticLabel: 'Sticker',
-                              ),
-                              _ComposerIcon(
-                                icon: LucideIcons.image,
-                                onTap: onPhoto,
-                                semanticLabel: 'Photo',
-                              ),
-                              _ComposerIcon(
-                                icon: LucideIcons.mic,
-                                onTap: onMic,
-                                semanticLabel: 'Voice',
-                              ),
-                            ],
-                          ),
-                  ),
-                ],
-              ),
+                // The sticker, the photo and the voice buttons go away
+                // while the keyboard is up: the separate box carries the
+                // input and the send button and nothing else.
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 140),
+                  curve: Curves.easeOut,
+                  child: expanded
+                      ? const SizedBox.shrink()
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _ComposerIcon(
+                              icon: LucideIcons.smile,
+                              active: stickerActive,
+                              onTap: onSticker,
+                              semanticLabel: 'Sticker',
+                            ),
+                            _ComposerIcon(
+                              icon: LucideIcons.image,
+                              onTap: onPhoto,
+                              semanticLabel: 'Photo',
+                            ),
+                            _ComposerIcon(
+                              icon: LucideIcons.mic,
+                              onTap: onMic,
+                              semanticLabel: 'Voice',
+                            ),
+                          ],
+                        ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 9),
@@ -859,6 +905,7 @@ class _CommentRow extends StatelessWidget {
     required this.onToggleLike,
     required this.onDelete,
     required this.onReply,
+    required this.canDelete,
   });
 
   final ReelComment comment;
@@ -866,22 +913,140 @@ class _CommentRow extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onReply;
 
+  /// The comment is mine, or I own the reel or the post it sits on.
+  final bool canDelete;
+
+  /// A long press opens the menu the web app puts behind the comment:
+  /// reply, copy, report and delete.
+  void _openMenu(BuildContext context) {
+    final t = context.tokens;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.sheet),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(top: 8, bottom: 6),
+                decoration: BoxDecoration(
+                  color: t.borderStrong,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              _MenuTile(
+                icon: LucideIcons.reply,
+                label: 'Reply',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  onReply();
+                },
+              ),
+              _MenuTile(
+                icon: LucideIcons.copy,
+                label: 'Copy text',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Clipboard.setData(ClipboardData(text: comment.text));
+                },
+              ),
+              if (canDelete)
+                _MenuTile(
+                  icon: LucideIcons.trash2,
+                  label: 'Delete comment',
+                  danger: true,
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    onDelete();
+                  },
+                ),
+              _MenuTile(
+                icon: LucideIcons.flag,
+                label: 'Report',
+                danger: true,
+                onTap: () => Navigator.of(sheetContext).pop(),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 7),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final entry in [comment, ...comment.replies])
-            _CommentLine(
-              comment: entry,
-              isReply: entry != comment,
-              onToggleLike: onToggleLike,
-              onDelete: onDelete,
-              onReply: onReply,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: () => _openMenu(context),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final entry in [comment, ...comment.replies])
+              _CommentLine(
+                comment: entry,
+                isReply: entry != comment,
+                onToggleLike: onToggleLike,
+                onDelete: onDelete,
+                onReply: onReply,
+                canDelete: canDelete,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MenuTile extends StatelessWidget {
+  const _MenuTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  final String icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            LucideIcon(
+              icon,
+              size: 19,
+              strokeWidth: 1.9,
+              color: danger ? t.danger : t.textPrimary,
             ),
-        ],
+            const SizedBox(width: 14),
+            Text(
+              label,
+              style: EnnvoText.body.copyWith(
+                color: danger ? t.danger : t.textPrimary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -899,6 +1064,7 @@ class _CommentLine extends StatelessWidget {
     required this.onToggleLike,
     required this.onDelete,
     required this.onReply,
+    required this.canDelete,
   });
 
   final ReelComment comment;
@@ -906,6 +1072,7 @@ class _CommentLine extends StatelessWidget {
   final VoidCallback onToggleLike;
   final VoidCallback onDelete;
   final VoidCallback onReply;
+  final bool canDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -999,7 +1166,7 @@ class _CommentLine extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (comment.isOwn) ...[
+                    if (canDelete) ...[
                       const SizedBox(width: 16),
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
@@ -1103,59 +1270,15 @@ class _CommentAvatar extends StatelessWidget {
 // ============================================================================
 //  A voice note or a picture inside a comment
 // ============================================================================
+// The attachments live in their own file, so the voice note player and
+// the full-screen photo viewer can be reused by the chat as well.
 class _CommentMedia extends StatelessWidget {
   const _CommentMedia({required this.comment});
 
   final ReelComment comment;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.tokens;
-    final url = comment.mediaUrl ?? '';
-
-    if (comment.kind == CommentKind.photo && url.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        child: Image.network(
-          url,
-          width: 160,
-          height: 160,
-          fit: BoxFit.cover,
-          cacheWidth: 480,
-          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-        ),
-      );
-    }
-
-    // A voice note: a small pill with the length of the note.
-    final seconds = (comment.audioDuration ?? 0) ~/ 1000;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: t.surfaceAlt,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          LucideIcon(
-            LucideIcons.play,
-            size: 13,
-            strokeWidth: 2,
-            color: t.accent,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '${seconds}s',
-            style: EnnvoText.tiny.copyWith(
-              color: t.textSecondary,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => CommentMedia(comment: comment);
 }
 
 // ============================================================================

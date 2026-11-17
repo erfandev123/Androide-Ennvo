@@ -30,7 +30,11 @@ import '../../data/models/notification.dart';
 import '../../shared/icons/lucide_icons.dart';
 
 class NotificationsPage extends ConsumerStatefulWidget {
-  const NotificationsPage({super.key});
+  const NotificationsPage({super.key, this.modal = false});
+
+  /// True when the page is opened from the inbox: the back button goes
+  /// home instead of pushing a new route.
+  final bool modal;
 
   @override
   ConsumerState<NotificationsPage> createState() => _NotificationsPageState();

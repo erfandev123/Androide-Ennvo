@@ -2,7 +2,7 @@
 //  ENNVO — AUTH SCREEN WIDGET TEST
 //
 //  The auth screen is the first thing a new user sees, so its structure is
-//  worth locking down.
+//  worth locking down against the web build.
 // ============================================================================
 
 import 'package:ennvo/features/auth/auth_page.dart';
@@ -16,11 +16,11 @@ void main() {
     await tester.pumpWidget(_wrap(const AuthPage()));
     await tester.pumpAndSettle();
 
-    expect(find.text('Log In to Ennvo'), findsOneWidget);
-    expect(find.text('Welcome back! Please enter your details.'), findsOneWidget);
+    expect(find.text('Welcome Back,'), findsOneWidget);
+    expect(find.text('Log In!'), findsOneWidget);
     expect(find.text('EMAIL ADDRESS'), findsOneWidget);
     expect(find.text('PASSWORD'), findsOneWidget);
-    expect(find.text('Log In'), findsOneWidget);
+    expect(find.text('Log in'), findsOneWidget);
     expect(find.text('Remember me'), findsOneWidget);
     expect(find.text('Forgot password?'), findsOneWidget);
   });
@@ -32,22 +32,27 @@ void main() {
     expect(find.text('Continue with Google'), findsOneWidget);
   });
 
-  testWidgets('switches to the sign-up form', (tester) async {
+  testWidgets('switches to the sign-up chooser and the form', (tester) async {
     await tester.pumpWidget(_wrap(const AuthPage()));
     await tester.pumpAndSettle();
 
-    // The link sits at the bottom of the form, which is inside a scroll
-    // view — bring it on screen first.
     await tester.ensureVisible(find.text('Sign Up'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Sign Up'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Join Ennvo'), findsOneWidget);
-    expect(find.text('FULL NAME'), findsOneWidget);
-    expect(find.text('USERNAME'), findsOneWidget);
+    // The web app opens the social chooser first.
+    expect(find.text("it's easier to sign up now"), findsOneWidget);
+    expect(find.text("I'll use email or username"), findsOneWidget);
+
+    await tester.ensureVisible(find.text("I'll use email or username"));
+    await tester.tap(find.text("I'll use email or username"));
+    await tester.pumpAndSettle();
+
+    expect(find.text('USER NAME'), findsOneWidget);
     expect(find.text('EMAIL ADDRESS'), findsOneWidget);
     expect(find.text('PASSWORD'), findsOneWidget);
+    expect(find.text('Sign up'), findsOneWidget);
   });
 
   testWidgets('switches to the password reset form', (tester) async {
@@ -57,11 +62,9 @@ void main() {
     await tester.tap(find.text('Forgot password?'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Reset your password'), findsOneWidget);
-    expect(
-      find.text('Enter your email and we will send you a reset link.'),
-      findsOneWidget,
-    );
+    expect(find.text('Reset Pass!'), findsOneWidget);
+    expect(find.text('YOUR EMAIL'), findsOneWidget);
+    expect(find.text('Send Reset Link'), findsOneWidget);
   });
 
   testWidgets('calls back with the entered credentials', (tester) async {
@@ -83,7 +86,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField).first, 'erfan');
     await tester.enterText(find.byType(TextField).last, 'secret123');
-    await tester.tap(find.text('Log In'));
+    await tester.tap(find.text('Log in'));
     await tester.pumpAndSettle();
 
     expect(user, 'erfan');

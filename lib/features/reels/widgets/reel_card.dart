@@ -49,6 +49,7 @@ class ReelActivity {
     required this.name,
     required this.avatarUrl,
     required this.kind,
+    this.persistent = false,
   });
 
   final int id;
@@ -57,6 +58,9 @@ class ReelActivity {
 
   /// `'like'` or `'repost'`.
   final String kind;
+
+  /// A real friend activity stays; a local burst fades away.
+  final bool persistent;
 }
 
 class ReelCard extends StatefulWidget {
@@ -86,6 +90,7 @@ class ReelCard extends StatefulWidget {
     this.song,
     this.playback,
     this.onPauseChanged,
+    this.friendActivities = const [],
   });
 
   final AppPost post;
@@ -110,6 +115,10 @@ class ReelCard extends StatefulWidget {
 
   /// The shared playback handle: the speed and the seek.
   final ReelPlayback? playback;
+
+  /// The real friend likes and reposts of this reel, read from Firestore.
+  /// Only people the viewer follows appear here.
+  final List<ReelActivity> friendActivities;
 
   final VoidCallback onToggleLike;
   final VoidCallback onToggleSave;
@@ -391,7 +400,13 @@ class _ReelCardState extends State<ReelCard>
               mainAxisSize: MainAxisSize.min,
               children: [
                 // --- the friend avatars, above the name ----------------
-                if (_activities.isNotEmpty) _ActivityRow(activities: _activities),
+                if (_activities.isNotEmpty || widget.friendActivities.isNotEmpty)
+                  _ActivityRow(
+                    activities: [
+                      ...widget.friendActivities,
+                      ..._activities,
+                    ].take(3).toList(),
+                  ),
 
                 // --- the picture, the follow badge and the name ---------
                 Row(
@@ -653,52 +668,87 @@ class _ActivityAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final avatar = Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.6),
+        color: const Color(0xFF1F2937),
+      ),
+      alignment: Alignment.center,
+      child: ClipOval(
+        child: ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: 1.2, sigmaY: 1.2),
+          child: activity.avatarUrl.isEmpty
+              ? Center(
+                  child: Text(
+                    activity.name.isEmpty
+                        ? '?'
+                        : activity.name.characters.first.toUpperCase(),
+                    style: EnnvoText.tiny.copyWith(color: Colors.white),
+                  ),
+                )
+              : Image.network(
+                  activity.avatarUrl,
+                  width: 34,
+                  height: 34,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+        ),
+      ),
+    );
+
+    // A green repeat for a repost, a red heart for a like.
+    final badge = Positioned(
+      right: -2,
+      bottom: -2,
+      child: Container(
+        width: 15,
+        height: 15,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: activity.kind == 'repost'
+              ? const Color(0xFF22C55E)
+              : const Color(0xFFFF2D55),
+          border: Border.all(color: Colors.black, width: 1.2),
+        ),
+        alignment: Alignment.center,
+        child: activity.kind == 'repost'
+            ? const LucideIcon(
+                LucideIcons.repeat2,
+                size: 9,
+                strokeWidth: 3,
+                color: Colors.white,
+              )
+            : const IonIcon(
+                IonIcons.heartFilled,
+                size: 9,
+                color: Colors.white,
+              ),
+      ),
+    );
+
+    // The real activities of friends stay on the reel. Only the local
+    // burst of a double tap fades away.
+    if (activity.persistent) {
+      return Stack(clipBehavior: Clip.none, children: [avatar, badge]);
+    }
+
     return TweenAnimationBuilder<double>(
       tween: Tween<double>(begin: 0, end: 1),
       duration: const Duration(milliseconds: 1400),
       curve: Curves.easeOutCubic,
       builder: (context, t, _) {
-        // It pops in and then fades away.
-        final pop = t < 0.22
-            ? (t / 0.22)
-            : 1 - ((t - 0.22) / 0.78) * 0.1;
+        final pop = t < 0.22 ? (t / 0.22) : 1 - ((t - 0.22) / 0.78) * 0.1;
         final opacity = t < 0.7 ? 1.0 : (1 - (t - 0.7) / 0.3);
 
         return Opacity(
           opacity: opacity.clamp(0.0, 1.0),
           child: Transform.scale(
             scale: (0.5 + 0.6 * pop).clamp(0.0, 1.1),
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 1.6),
-                color: const Color(0xFF1F2937),
-              ),
-              alignment: Alignment.center,
-              child: ClipOval(
-                child: ImageFiltered(
-                  imageFilter: ImageFilter.blur(sigmaX: 1.4, sigmaY: 1.4),
-                  child: activity.avatarUrl.isEmpty
-                      ? Center(
-                          child: Text(
-                            activity.name.isEmpty
-                                ? '?'
-                                : activity.name.characters.first.toUpperCase(),
-                            style: EnnvoText.tiny.copyWith(color: Colors.white),
-                          ),
-                        )
-                      : Image.network(
-                          activity.avatarUrl,
-                          width: 34,
-                          height: 34,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                        ),
-                ),
-              ),
-            ),
+            child: Stack(clipBehavior: Clip.none, children: [avatar, badge]),
           ),
         );
       },

@@ -105,11 +105,21 @@ class ReelShareSheet extends StatefulWidget {
 
 class _ReelShareSheetState extends State<ReelShareSheet> {
   final TextEditingController _message = TextEditingController();
+  final TextEditingController _search = TextEditingController();
 
   /// The people that are picked.
   final Set<String> _selected = <String>{};
 
   ShareSettings _settings = const ShareSettings();
+
+  /// The friends filtered by the search box.
+  List<ShareTarget> get _visibleTargets {
+    final term = _search.text.trim().toLowerCase();
+    if (term.isEmpty) return widget.targets;
+    return widget.targets
+        .where((target) => target.name.toLowerCase().contains(term))
+        .toList();
+  }
 
   @override
   void initState() {
@@ -120,6 +130,7 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
   @override
   void dispose() {
     _message.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -228,16 +239,58 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // --- search the people ---------------------------------
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
+                      child: Container(
+                        height: 40,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: t.surfaceAlt,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            LucideIcon(
+                              LucideIcons.search,
+                              size: 16,
+                              color: t.textTertiary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: TextField(
+                                controller: _search,
+                                onChanged: (_) => setState(() {}),
+                                style: EnnvoText.body.copyWith(
+                                  color: t.textPrimary,
+                                  fontSize: 13,
+                                ),
+                                decoration: InputDecoration(
+                                  isDense: true,
+                                  border: InputBorder.none,
+                                  contentPadding: EdgeInsets.zero,
+                                  hintText: 'Search people...',
+                                  hintStyle: EnnvoText.caption.copyWith(
+                                    color: t.textTertiary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
                     // --- the people ----------------------------------------
                     SizedBox(
                       height: 104,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                        itemCount: widget.targets.length,
+                        itemCount: _visibleTargets.length,
                         separatorBuilder: (_, __) => const SizedBox(width: 14),
                         itemBuilder: (context, index) {
-                          final target = widget.targets[index];
+                          final target = _visibleTargets[index];
                           final isSelected = _selected.contains(target.id);
 
                           return GestureDetector(
@@ -409,6 +462,13 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
                             onTap: widget.onDownload ?? () {},
                           ),
                           _ShareOption(
+                            icon: LucideIcons.settings,
+                            label: 'Settings',
+                            onTap: () => widget.isOwner
+                                ? _openOwnerSettings(context)
+                                : _notOwner(context),
+                          ),
+                          _ShareOption(
                             icon: LucideIcons.moreHorizontal,
                             label: 'More',
                             onTap: () => _openMore(context),
@@ -506,6 +566,201 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
       if (target.name.isNotEmpty) return target.name.split(' ').first;
     }
     return 'them';
+  }
+
+  /// Only the owner may open the settings of a reel.
+  void _notOwner(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Only the owner can change these settings.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// The settings page of the reel, owner only.
+  void _openOwnerSettings(BuildContext context) {
+    final t = context.tokens;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.86,
+        ),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.sheet),
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: t.borderStrong,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    LucideIcon(
+                      LucideIcons.lock,
+                      size: 18,
+                      color: t.accent,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Settings (Privacy)',
+                      style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'WHO CAN SEE THIS',
+                  style: EnnvoText.overlineXs.copyWith(
+                    color: t.textTertiary,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    for (final entry in const {
+                      'public': 'Public',
+                      'followers': 'Friends',
+                      'private': 'Only Me',
+                    }.entries)
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => setState(() {
+                            _settings = _settings.copyWith(
+                              privacy: entry.key,
+                            );
+                            widget.onSettingsChanged?.call(_settings);
+                          }),
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: _settings.privacy == entry.key
+                                  ? t.accent
+                                  : t.surfaceAlt,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              entry.value,
+                              style: EnnvoText.caption.copyWith(
+                                color: _settings.privacy == entry.key
+                                    ? Colors.white
+                                    : t.textSecondary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'MORE SETTINGS',
+                  style: EnnvoText.overlineXs.copyWith(
+                    color: t.textTertiary,
+                    fontSize: 11,
+                  ),
+                ),
+                _SettingsToggle(
+                  icon: LucideIcons.messageCircle,
+                  label: 'Turn off commenting',
+                  value: _settings.commentsDisabled,
+                  onChanged: (value) {
+                    setState(() {
+                      _settings = _settings.copyWith(
+                        commentsDisabled: value,
+                      );
+                    });
+                    widget.onSettingsChanged?.call(_settings);
+                  },
+                ),
+                _SettingsToggle(
+                  icon: LucideIcons.repeat2,
+                  label: 'Allow remixes',
+                  value: _settings.allowRemix,
+                  onChanged: (value) {
+                    setState(() {
+                      _settings = _settings.copyWith(allowRemix: value);
+                    });
+                    widget.onSettingsChanged?.call(_settings);
+                  },
+                ),
+                _SettingsToggle(
+                  icon: LucideIcons.heart,
+                  label: 'Hide like counts',
+                  value: _settings.hideLikes,
+                  onChanged: (value) {
+                    setState(() {
+                      _settings = _settings.copyWith(hideLikes: value);
+                    });
+                    widget.onSettingsChanged?.call(_settings);
+                  },
+                ),
+                _SettingsToggle(
+                  icon: LucideIcons.download,
+                  label: 'Save to device',
+                  value: _settings.saveToDevice,
+                  onChanged: (value) {
+                    setState(() {
+                      _settings = _settings.copyWith(saveToDevice: value);
+                    });
+                    widget.onSettingsChanged?.call(_settings);
+                  },
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => Navigator.of(sheetContext).pop(),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: AppGradients.create,
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text(
+                        'Done',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// The "More" menu: the things that do not fit in the row.

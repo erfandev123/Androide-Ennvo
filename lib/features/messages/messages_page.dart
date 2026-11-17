@@ -24,6 +24,7 @@ import '../../core/theme/typography.dart';
 import '../../data/models/message.dart';
 import '../../data/services/chat_service.dart';
 import '../../shared/icons/lucide_icons.dart';
+import '../notifications/notifications_page.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/chat_composer.dart';
 
@@ -94,6 +95,13 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
 
     final list = _ConversationList(
       conversations: conversations,
+      onActivity: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const NotificationsPage(modal: true),
+          ),
+        );
+      },
       onOpen: (id) {
         // On a phone the conversation opens as its own page: it covers the
         // app, so the navigation bar does not sit on top of the chat — the
@@ -339,10 +347,15 @@ class _ChatRouteState extends ConsumerState<_ChatRoute> {
 //  The conversation list
 // ============================================================================
 class _ConversationList extends StatelessWidget {
-  const _ConversationList({required this.conversations, required this.onOpen});
+  const _ConversationList({
+    required this.conversations,
+    required this.onOpen,
+    required this.onActivity,
+  });
 
   final List<Conversation> conversations;
   final ValueChanged<String> onOpen;
+  final VoidCallback onActivity;
 
   @override
   Widget build(BuildContext context) {
@@ -406,6 +419,72 @@ class _ConversationList extends StatelessWidget {
                     semanticLabel: 'Search',
                   ),
                 ],
+              ),
+            ),
+
+            // --- the Activity option -------------------------------------
+            // The web app opens the Activity page from the inbox; it is the
+            // same screen as the notifications page, in a sheet.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onActivity,
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: t.surfaceAlt,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFF2D55),
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: const LucideIcon(
+                        LucideIcons.sparkles,
+                        size: 22,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Activity',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Notifications & alerts',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    LucideIcon(
+                      LucideIcons.chevronRight,
+                      size: 18,
+                      color: t.textTertiary,
+                    ),
+                  ],
+                ),
               ),
             ),
 

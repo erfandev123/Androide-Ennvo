@@ -123,6 +123,9 @@ void main() {
     final prefs = await _buildPrefs();
     await tester.pumpWidget(_harness(prefs, const AuthPage()));
     await tester.pumpAndSettle();
+    await _precacheAssets(tester, const [
+      'assets/brand/ennvo_logo.png',
+    ]);
 
     if (_isCI) return;
     await expectLater(

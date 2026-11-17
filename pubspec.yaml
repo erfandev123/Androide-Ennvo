@@ -27,6 +27,9 @@ dependencies:
   # Voice notes - the recorder of the comment composer.
   record: ^7.2.0
 
+  # Playing the voice notes of the comments and the chat.
+  audioplayers: ^6.1.0
+
   # The camera and the photo picker of the composer.
   image_picker: ^1.1.2
 

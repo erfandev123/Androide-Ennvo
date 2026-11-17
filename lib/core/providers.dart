@@ -16,15 +16,19 @@ import '../data/models/message.dart';
 import '../data/models/notification.dart';
 import '../data/models/post.dart';
 import '../data/models/song.dart';
+import '../data/models/user.dart';
 import '../data/services/chat_service.dart';
 import '../data/services/comment_service.dart';
 import '../data/services/firebase_service.dart';
 import '../data/services/notification_service.dart';
 import '../data/services/post_service.dart';
 import '../data/services/reels_service.dart';
+import '../data/services/reel_interaction_service.dart';
 import '../data/services/song_service.dart';
 import '../data/services/story_service.dart';
+import '../data/services/user_service.dart';
 import '../features/reels/models/reel_comment.dart';
+import '../features/reels/widgets/reel_card.dart';
 import 'auth/auth_controller.dart';
 import 'nav/nav_controller.dart';
 import 'perf/device_tier.dart';
@@ -91,6 +95,18 @@ final commentsProvider = StreamProvider.family<List<ReelComment>, String>((
   return CommentService.subscribe(postId);
 });
 
+/// The friend activities of one reel - the PFPs above the name.
+final friendActivitiesProvider =
+    StreamProvider.family<List<ReelActivity>, String>((ref, postId) {
+  final me = ref.watch(authControllerProvider).user?.uid ?? '';
+  final friends = ref.watch(followingProvider).value ?? const [];
+  return ReelInteractionService.subscribeFriendActivities(
+    postId: postId,
+    friendIds: friends.map((user) => user.uid).toSet(),
+    currentUserId: me,
+  );
+});
+
 /// The song of a reel.
 ///
 /// The reel only stores the id; the title and the artist live in the
@@ -122,6 +138,12 @@ final feedProvider = StreamProvider<List<AppPost>>((ref) {
   return PostService.subscribeFeed();
 });
 
+/// The saved posts of the signed-in user.
+final savedPostsProvider = FutureProvider<List<AppPost>>((ref) {
+  final uid = ref.watch(authControllerProvider).user?.uid ?? '';
+  return PostService.savedPosts(uid);
+});
+
 /// The stories strip.
 final storiesProvider = StreamProvider<List<Story>>((ref) {
   return StoryService.subscribeStories();
@@ -149,6 +171,12 @@ final messagesProvider =
 final userPostsProvider = StreamProvider<List<AppPost>>((ref) {
   final uid = ref.watch(authControllerProvider).user?.uid ?? '';
   return PostService.subscribeUserPosts(uid);
+});
+
+/// The friends (people the user follows) of the signed-in user.
+final followingProvider = StreamProvider<List<AppUser>>((ref) {
+  final uid = ref.watch(authControllerProvider).user?.uid ?? '';
+  return UserService.subscribeFollowing(uid);
 });
 
 /// The Firestore instance, or null when Firebase could not start.

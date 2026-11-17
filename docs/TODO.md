@@ -107,7 +107,34 @@ Last updated after the "reels, splash, camera, uploads" round.
 
 ## 7. Still open
 
-### 7.1 The camera and the edit
+### 7.1 The account and the screens
+- [x] The auth page of the web app: the blue wave header, the rounded
+      inputs, all five screens (Log In, Sign Up chooser, Sign Up form,
+      Reset Pass, Google setup). The account that signs in is the one the
+      chat, the profile, the saved posts and the reels run as.
+- [x] The share sheet: all friends from `users/{me}/following`, a search
+      box, and a Settings page that only the owner can open. The privacy
+      change is written to `posts/{id}`.
+- [x] The comment input has no rounded box: plain text on the surface.
+- [x] A long press on a comment opens a menu with reply, copy, report and
+      delete. Delete is shown for the comment's author or the owner of the
+      reel or post.
+- [x] Voice notes really play, photos open full screen and GIF stickers
+      are live.
+- [x] The Messages page has the Activity option, which opens the same
+      Activity page the web app mounts from the inbox.
+- [x] Floating friend PFPs come from `posts/{id}/likes` and `reposts`, and
+      only people the viewer follows are shown, with the red heart or the
+      green repost badge.
+- [x] The reels feed learns: liked reels and the reels of liked authors
+      come forward.
+- [x] The profile tabs are real: Posts, Reels, Saved (from
+      `users/{uid}/favorites`) and Private.
+- [ ] Google and Facebook sign-in buttons are drawn but not wired; the
+      Firebase providers need the native OAuth setup.
+- [ ] The profile "Edit profile" and the chat read receipts are next.
+
+### 7.2 The camera and the edit
 - [x] A **live** camera preview, on CameraX.
 - [x] A shutter that takes a photo on a tap and records a video on a hold.
 - [x] The flash, the timer, the flip, the gallery, the sound and the modes.

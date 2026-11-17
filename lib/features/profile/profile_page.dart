@@ -54,6 +54,7 @@ class _ProfilePageState extends ConsumerState<ProfilePage>
     final auth = ref.watch(authControllerProvider);
     final user = auth.user;
     final posts = ref.watch(userPostsProvider);
+    final saved = ref.watch(savedPostsProvider);
     return Scaffold(
       // The profile page stays light in dark mode — the web app's
       // `.profile-page-root` does the same.
@@ -99,10 +100,33 @@ class _ProfilePageState extends ConsumerState<ProfilePage>
                       ),
                     ),
                     error: (_, __) => const SizedBox.shrink(),
-                    data: (items) => _ProfileGrid(
-                      posts: items,
-                      tab: _tab,
-                    ),
+                    data: (items) {
+                      // The same five tabs the web app shows on a profile.
+                      final visible = switch (_tab) {
+                        ProfileTab.posts => items
+                            .where(
+                              (post) =>
+                                  post.type != PostType.reel &&
+                                  post.privacy != PostPrivacy.private,
+                            )
+                            .toList(),
+                        ProfileTab.reels => items
+                            .where(
+                              (post) =>
+                                  post.type == PostType.reel &&
+                                  post.privacy != PostPrivacy.private,
+                            )
+                            .toList(),
+                        ProfileTab.private => items
+                            .where(
+                              (post) => post.privacy == PostPrivacy.private,
+                            )
+                            .toList(),
+                        ProfileTab.saved => saved.value ?? const <AppPost>[],
+                        ProfileTab.reposts => const <AppPost>[],
+                      };
+                      return _ProfileGrid(posts: visible, tab: _tab);
+                    },
                   ),
                 ),
                 const SliverToBoxAdapter(child: SizedBox(height: 96)),
@@ -638,42 +662,6 @@ class _ProfileGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (tab == ProfileTab.private) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 48, horizontal: 32),
-        child: Column(
-          children: [
-            LucideIcon(
-              LucideIcons.lock,
-              size: 40,
-              strokeWidth: 1.6,
-              color: Color(0xFF9CA3AF),
-            ),
-            SizedBox(height: 12),
-            Text(
-              'Only Me',
-              style: TextStyle(
-                fontFamily: 'Outfit',
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF111827),
-              ),
-            ),
-            SizedBox(height: 6),
-            Text(
-              'This section is private. Make it public to share these posts.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'PlusJakartaSans',
-                fontSize: 13.5,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     if (posts.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 48),

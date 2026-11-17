@@ -53,6 +53,37 @@ class PostService {
         );
   }
 
+  /// The posts the user saved, read from `users/{uid}/favorites`.
+  static Future<List<AppPost>> savedPosts(String uid) async {
+    if (uid.isEmpty || !FirebaseService.isReady) return const [];
+    try {
+      final snapshot = await FirebaseService.firestore
+          .collection('users')
+          .doc(uid)
+          .collection('favorites')
+          .get();
+      final posts = <AppPost>[];
+      for (final doc in snapshot.docs) {
+        try {
+          final post = await FirebaseService.firestore
+              .collection('posts')
+              .doc(doc.id)
+              .get();
+          if (post.exists) {
+            posts.add(
+              AppPost.fromFirestore(post, fallbackId: doc.id),
+            );
+          }
+        } catch (_) {
+          // One missing post must not hide the rest.
+        }
+      }
+      return posts;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Toggles the like on a post.
   static Future<int> toggleLike({
     required String postId,

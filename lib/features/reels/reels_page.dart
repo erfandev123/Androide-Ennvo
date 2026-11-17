@@ -240,9 +240,39 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       error: (_, __) => _buildFeed(context, fallback),
       data: (items) {
         final base = items.isEmpty ? fallback : items;
-        return _buildFeed(context, [...base, ..._extraReels]);
+        // The reels the viewer likes - and the authors behind them - come
+        // forward, the way the feed learns a person's taste.
+        final ranked = _rankByPreference([...base, ..._extraReels]);
+        return _buildFeed(context, ranked);
       },
     );
+  }
+
+  /// The authors of the reels the user has liked. Their new reels are
+  /// shown higher in the feed.
+  final Set<String> _preferredAuthors = <String>{};
+
+  /// Ranks reels by the taste of the viewer.
+  ///
+  /// A reel the viewer liked, or one from an author they liked, gets a
+  /// strong boost. The viral score and the unseen bonus of the web app are
+  /// kept underneath it.
+  List<AppPost> _rankByPreference(List<AppPost> reels) {
+    final ranked = List<AppPost>.of(reels);
+    ranked.sort((a, b) {
+      final aPref = (_liked.contains(a.id) || _preferredAuthors.contains(a.authorId)) ? 10000 : 0;
+      final bPref = (_liked.contains(b.id) || _preferredAuthors.contains(b.authorId)) ? 10000 : 0;
+      if (aPref != bPref) return bPref.compareTo(aPref);
+
+      final aSeen = _seen.contains(a.id) ? 0 : 500;
+      final bSeen = _seen.contains(b.id) ? 0 : 500;
+      final aViral = (a.likesCount * 1.5) + (a.commentsCount * 3) + (a.viewsCount * 0.1);
+      final bViral = (b.likesCount * 1.5) + (b.commentsCount * 3) + (b.viewsCount * 0.1);
+      final aScore = aSeen + aViral + (a.id.isEmpty ? 0 : a.id.codeUnitAt(0) % 30);
+      final bScore = bSeen + bViral + (b.id.isEmpty ? 0 : b.id.codeUnitAt(0) % 30);
+      return bScore.compareTo(aScore);
+    });
+    return ranked;
   }
 
   Widget _buildFeed(BuildContext context, List<AppPost> reels) {
@@ -256,6 +286,13 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     final songId = activePost?.songId;
     final songAsync = songId == null ? null : ref.watch(songProvider(songId));
     final song = songAsync != null && songAsync.hasValue ? songAsync.value : null;
+
+    // The friends whose likes and reposts float above the name.
+    final friendActivities =
+        activePost == null
+            ? const <ReelActivity>[]
+            : ref.watch(friendActivitiesProvider(activePost.id)).value ??
+                const <ReelActivity>[];
 
     return ColoredBox(
       color: Colors.black,
@@ -296,6 +333,9 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                   isSuspended: _suspended,
                   song: index == _activeIndex ? song : null,
                   playback: _playback,
+                  friendActivities: index == _activeIndex
+                      ? friendActivities
+                      : const <ReelActivity>[],
                   onProgress: (value) {
                     // Only the timeline listens to this — the feed itself is
                     // never rebuilt for it.
@@ -309,7 +349,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                   onToggleLike: () {
                     HapticFeedback.lightImpact();
                     setState(() {
-                      if (!_liked.remove(post.id)) _liked.add(post.id);
+                      if (!_liked.remove(post.id)) {
+                        _liked.add(post.id);
+                        _preferredAuthors.add(post.authorId);
+                      }
                     });
                   },
                   onToggleSave: () {
@@ -444,8 +487,19 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
             replierName: post.authorName,
             avatarUrl: user?.avatar ?? '',
             userName: user?.name ?? 'You',
+            postAuthorId: post.authorId,
+            currentUserId: user?.uid ?? '',
             onSubmit: (text, replyTo) async {
               await _addComment(post, text, replyTo);
+            },
+            onSubmitTyped: (text, replyTo, kind) async {
+              await _writeComment(
+                post,
+                text: text,
+                replyTo: replyTo,
+                kind: kind == 'sticker' ? CommentKind.sticker : CommentKind.text,
+                mediaUrl: kind == 'sticker' ? text : null,
+              );
             },
             onVoice: (path, durationMs, replyTo) async {
               await _addVoiceComment(post, path, durationMs, replyTo);
@@ -688,6 +742,23 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       );
     }
 
+    // Every friend of the account is a share target. The web app merges
+    // the conversations with the people the user follows.
+    final friends = ref.read(followingProvider).value ?? const [];
+    for (final friend in friends) {
+      final ids = [user?.uid ?? '', friend.uid]..sort();
+      final conversationId = 'dm_${ids.join('_')}';
+      if (!targets.any((target) => target.id == conversationId)) {
+        targets.add(
+          ShareTarget(
+            id: conversationId,
+            name: friend.name,
+            avatarUrl: friend.avatar,
+          ),
+        );
+      }
+    }
+
     // Without a network the sheet still shows somebody to send to.
     if (targets.isEmpty) {
       targets.addAll(_demoTargets);
@@ -714,6 +785,18 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
         },
         onAddStory: () {},
         onDownload: () {},
+        onSettingsChanged: (settings) async {
+          await FirebaseService.firestore
+              .collection('posts')
+              .doc(post.id)
+              .update({
+            'privacy': settings.privacy,
+            'isPrivate': settings.privacy == 'private',
+            'commentsDisabled': settings.commentsDisabled,
+            'allowRemix': settings.allowRemix,
+            'hideLikes': settings.hideLikes,
+          });
+        },
       ),
     ).whenComplete(_resume);
   }
