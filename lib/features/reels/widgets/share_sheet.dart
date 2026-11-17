@@ -148,6 +148,9 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
     final t = context.tokens;
     final media = MediaQuery.of(context);
     final keyboard = media.viewInsets.bottom;
+    // Keep the sheet clear of the phone's back / home / overview buttons,
+    // which are drawn over the bottom of an edge-to-edge screen.
+    final systemBottom = media.padding.bottom;
     final hasSelection = _selected.isNotEmpty;
 
     // The sheet never grows past the room it needs, and it lifts its lower
@@ -165,7 +168,7 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
         border: Border(top: BorderSide(color: t.border)),
       ),
       child: Padding(
-        padding: EdgeInsets.only(bottom: keyboard),
+        padding: EdgeInsets.only(bottom: keyboard + systemBottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

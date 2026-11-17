@@ -5,10 +5,12 @@
 //  (`subscribeReels`, `getFeed`) and the ranking that lives in
 //  `src/pages/Reels.tsx`.
 //
-//  Ranking rules ported from the web app:
-//    1. promoted reels come first
-//    2. then by score = (seen ? 0 : 500) + likes*1.5 + comments*3
-//                 + views*0.1 + (id[0] % 30)
+//  The web app asks Firestore for `where('type','==','reel')` and sorts the
+//  result in memory. It does NOT put an `orderBy('createdAt')` on that
+//  query: a filter plus an order needs a composite index, and a project
+//  without that index returns nothing - which left the feed with no real
+//  videos. The native port follows the web app exactly, so the real reels
+//  always load.
 // ============================================================================
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,6 +23,18 @@ class ReelsService {
 
   static const int defaultPageSize = 25;
 
+  /// Newest first. The creation time can be a Firestore timestamp or a
+  /// string in the documents the web app has already stored.
+  static int _timeOf(AppPost post) {
+    final created = post.createdAt;
+    if (created != null) return created.millisecondsSinceEpoch;
+    return 0;
+  }
+
+  static void _newestFirst(List<AppPost> posts) {
+    posts.sort((a, b) => _timeOf(b).compareTo(_timeOf(a)));
+  }
+
   /// Subscribes to the newest reels.
   static Stream<List<AppPost>> subscribeReels({int pageSize = defaultPageSize}) {
     if (!FirebaseService.isReady) return Stream.value(const <AppPost>[]);
@@ -28,18 +42,22 @@ class ReelsService {
     return FirebaseService.firestore
         .collection('posts')
         .where('type', isEqualTo: 'reel')
-        .orderBy('createdAt', descending: true)
-        .limit(pageSize)
+        .limit(pageSize * 2)
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs
-                  .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
-                  .toList(growable: false),
-        );
+        .map((snapshot) {
+      final posts = snapshot.docs
+          .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
+          .toList(growable: false);
+      _newestFirst(posts);
+      return posts;
+    });
   }
 
   /// Subscribes to the reels of the people the user follows.
+  ///
+  /// The `whereIn` is done on the phone when the list is short: Firestore
+  /// caps `whereIn` at 10 values on older SDKs, and a `whereIn` plus an
+  /// `orderBy` needs another index.
   static Stream<List<AppPost>> subscribeFollowingReels({
     required List<String> followingIds,
     int pageSize = defaultPageSize,
@@ -48,19 +66,20 @@ class ReelsService {
       return Stream.value(const <AppPost>[]);
     }
 
+    final ids = followingIds.toSet();
     return FirebaseService.firestore
         .collection('posts')
         .where('type', isEqualTo: 'reel')
-        .where('authorId', whereIn: followingIds.take(30).toList())
-        .orderBy('createdAt', descending: true)
-        .limit(pageSize)
+        .limit(pageSize * 3)
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs
-                  .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
-                  .toList(growable: false),
-        );
+        .map((snapshot) {
+      final posts = snapshot.docs
+          .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
+          .where((post) => ids.contains(post.authorId))
+          .toList(growable: false);
+      _newestFirst(posts);
+      return posts.take(pageSize).toList(growable: false);
+    });
   }
 
   /// Loads one page of reels — used for the offline cache.
@@ -72,12 +91,13 @@ class ReelsService {
       final snapshot = await FirebaseService.firestore
           .collection('posts')
           .where('type', isEqualTo: 'reel')
-          .orderBy('createdAt', descending: true)
-          .limit(pageSize)
+          .limit(pageSize * 2)
           .get();
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
-          .toList(growable: false);
+          .toList();
+      _newestFirst(posts);
+      return posts;
     } catch (_) {
       return const [];
     }
@@ -85,8 +105,9 @@ class ReelsService {
 
   /// Loads an older page of reels, so the feed never ends.
   ///
-  /// The cursor is the creation time of the oldest reel on screen, which
-  /// is the same cursor the web app uses.
+  /// The cursor is applied on the phone after the fetch: a `where` plus a
+  /// range plus an `orderBy` needs a composite index that a fresh Firebase
+  /// project does not have yet.
   static Future<List<AppPost>> fetchMore({
     required DateTime before,
     int limit = 12,
@@ -96,13 +117,17 @@ class ReelsService {
       final snapshot = await FirebaseService.firestore
           .collection('posts')
           .where('type', isEqualTo: 'reel')
-          .where('createdAt', isLessThan: Timestamp.fromDate(before))
-          .orderBy('createdAt', descending: true)
-          .limit(limit)
+          .limit(limit * 6)
           .get();
-      return snapshot.docs
+      final posts = snapshot.docs
           .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
-          .toList(growable: false);
+          .where((post) {
+            final created = post.createdAt;
+            return created != null && created.isBefore(before);
+          })
+          .toList();
+      _newestFirst(posts);
+      return posts.take(limit).toList(growable: false);
     } catch (_) {
       return const [];
     }

@@ -27,6 +27,7 @@ import '../../../core/theme/motion.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/post.dart';
+import '../../../shared/icons/ion_icons.dart';
 import '../../../shared/icons/lucide_icons.dart';
 import '../../../shared/widgets/song_marquee.dart';
 
@@ -231,11 +232,9 @@ class _PostCardState extends State<PostCard> {
             child: Row(
               children: [
                 _ActionButton(
-                  icon: LucideIcon(
-                    LucideIcons.heart,
-                    size: 20,
-                    strokeWidth: 2,
-                    filled: widget.isLiked,
+                  icon: IonIcon(
+                    widget.isLiked ? IonIcons.heartFilled : IonIcons.heartOutline,
+                    size: 21,
                     color: widget.isLiked
                         ? const Color(0xFFF43F5E)
                         : t.textPrimary,
@@ -246,10 +245,9 @@ class _PostCardState extends State<PostCard> {
                 ),
                 const SizedBox(width: 22),
                 _ActionButton(
-                  icon: LucideIcon(
-                    LucideIcons.messageCircle,
-                    size: 20,
-                    strokeWidth: 2,
+                  icon: IonIcon(
+                    IonIcons.chatOutline,
+                    size: 21,
                     color: t.textPrimary,
                   ),
                   count: post.commentsCount,
@@ -258,10 +256,9 @@ class _PostCardState extends State<PostCard> {
                 ),
                 const SizedBox(width: 22),
                 _ActionButton(
-                  icon: LucideIcon(
-                    LucideIcons.repeat2,
-                    size: 20,
-                    strokeWidth: 2.2,
+                  icon: IonIcon(
+                    IonIcons.repeatOutline,
+                    size: 21,
                     color: widget.isReposted
                         ? const Color(0xFF3B82F6)
                         : t.textPrimary,
@@ -272,10 +269,9 @@ class _PostCardState extends State<PostCard> {
                 ),
                 const SizedBox(width: 22),
                 _ActionButton(
-                  icon: LucideIcon(
-                    LucideIcons.share2,
-                    size: 20,
-                    strokeWidth: 2,
+                  icon: IonIcon(
+                    IonIcons.share,
+                    size: 21,
                     color: t.textPrimary,
                   ),
                   onTap: widget.onShare,

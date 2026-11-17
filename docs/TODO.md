@@ -107,27 +107,36 @@ Last updated after the "reels, splash, camera, uploads" round.
 
 ## 7. Still open
 
-### 7.1 The camera
-- [ ] A **live** camera preview. The screen uses the photo picker of the
-      system today, so there is no live picture behind the shutter.
-- [ ] Shoot a **video** for a reel, not only a picture.
-- [ ] The trim of a reel, the music picker, the stickers and the effects.
-- [ ] The camera settings (grid, timer behaviour, save the location) are
-      drawn, but they are not stored yet.
+### 7.1 The camera and the edit
+- [x] A **live** camera preview, on CameraX.
+- [x] A shutter that takes a photo on a tap and records a video on a hold.
+- [x] The flash, the timer, the flip, the gallery, the sound and the modes.
+- [x] The edit screen: trim / crop, sound, text, stickers, filters, cover and
+      mute.
+- [x] The TikTok publish page: the cover, the title, the tags, the privacy,
+      the comments, the remix and a real upload bar.
+- [ ] The trim and the filters change the preview today; baking them into
+      the exported video needs an on-device encoder (FFmpeg), which would
+      add about 50 MB to the APK.
+- [ ] The music picker offers three demo sounds. A real `songs` picker is
+      the next step.
 
 ### 7.2 The uploads
-- [ ] The **progress** of an upload is only on the post, not on the voice
-      note or on the picture of a comment.
+- [ ] The progress of an upload is only on the post and the reel, not on
+      the voice note or on the picture of a comment.
 - [ ] The uploads of a voice note and of a picture of a comment fall back
       to "the file is not there" when the bucket is not configured.
 - [ ] No **retry** of a failed upload.
 - [ ] The files are not deleted from the cache after they are sent.
 
 ### 7.3 The reels
-- [ ] The **song of a reel is looked up, not chosen**. There is no music
+- [x] **Real videos** from the web app's Firebase project and the R2
+      bucket. The Firestore query is the same as the web app's: a filter on
+      `type` with the sort done in memory, so no composite index is needed.
+- [x] The exact Ionicons of the web build on the rail and on the actions.
+- [ ] The song of a reel is looked up, not chosen. There is no music
       picker yet.
 - [ ] The reel that is playing is not written to the history of the user.
-- [ ] The **2x** badge could show the speed of the reel in the disc.
 
 ### 7.4 The comments and the chat
 - [ ] The **voice notes are not played** yet. They are recorded and sent,

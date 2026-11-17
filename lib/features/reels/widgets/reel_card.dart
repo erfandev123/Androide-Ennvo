@@ -36,6 +36,7 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/post.dart';
 import '../../../data/models/song.dart';
+import '../../../shared/icons/ion_icons.dart';
 import '../../../shared/icons/lucide_icons.dart';
 import '../../../shared/widgets/song_marquee.dart';
 import '../demo_reels.dart';
@@ -317,10 +318,9 @@ class _ReelCardState extends State<ReelCard>
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
-                  child: const LucideIcon(
-                    LucideIcons.play,
-                    size: 40,
-                    strokeWidth: 2.4,
+                  child: const IonIcon(
+                    IonIcons.play,
+                    size: 34,
                     color: Colors.white,
                   ),
                 ),
@@ -348,11 +348,9 @@ class _ReelCardState extends State<ReelCard>
                     opacity: opacity.clamp(0.0, 1.0),
                     child: Transform.scale(
                       scale: scale,
-                      child: const LucideIcon(
-                        LucideIcons.heart,
+                      child: const IonIcon(
+                        IonIcons.heartFilled,
                         size: 120,
-                        strokeWidth: 1.6,
-                        filled: true,
                         color: Color(0xE6FF2D55),
                       ),
                     ),
@@ -516,7 +514,8 @@ class _ReelCardState extends State<ReelCard>
             mainAxisSize: MainAxisSize.min,
             children: [
               _RailButton(
-                icon: LucideIcons.heart,
+                icon: IonIcons.heartOutline,
+                filledIcon: IonIcons.heartFilled,
                 filled: widget.isLiked,
                 activeColor: const Color(0xFFFF2D55),
                 label: _format(widget.likesCount),
@@ -528,14 +527,15 @@ class _ReelCardState extends State<ReelCard>
               ),
               const SizedBox(height: 16),
               _RailButton(
-                icon: LucideIcons.messageCircle,
+                icon: IonIcons.chatOutline,
                 label: _format(widget.commentsCount),
                 onTap: widget.onOpenComments,
                 semanticLabel: 'Comments',
               ),
               const SizedBox(height: 16),
               _RailButton(
-                icon: LucideIcons.repeat2,
+                icon: IonIcons.repeatOutline,
+                filledIcon: IonIcons.repeatOutline,
                 filled: widget.isReposted,
                 activeColor: const Color(0xFF22C55E),
                 label: _format(widget.sharesCount),
@@ -547,7 +547,8 @@ class _ReelCardState extends State<ReelCard>
               ),
               const SizedBox(height: 16),
               _RailButton(
-                icon: LucideIcons.bookmark,
+                icon: IonIcons.bookmarkOutline,
+                filledIcon: IonIcons.bookmarkFilled,
                 filled: widget.isSaved,
                 activeColor: const Color(0xFFFFD700),
                 label: _format(widget.favouritesCount),
@@ -556,7 +557,7 @@ class _ReelCardState extends State<ReelCard>
               ),
               const SizedBox(height: 16),
               _RailButton(
-                icon: LucideIcons.share2,
+                icon: IonIcons.share,
                 label: _format(widget.sharesCount),
                 onTap: widget.onOpenShare,
                 semanticLabel: 'Share',
@@ -591,10 +592,9 @@ class _ReelCardState extends State<ReelCard>
                   color: Colors.black.withValues(alpha: 0.38),
                   shape: BoxShape.circle,
                 ),
-                child: LucideIcon(
-                  widget.muted ? LucideIcons.volumeX : LucideIcons.volume2,
+                child: IonIcon(
+                  widget.muted ? IonIcons.volumeOff : IonIcons.volumeHigh,
                   size: 21,
-                  strokeWidth: 1.9,
                   color: Colors.white,
                 ),
               ),
@@ -928,11 +928,17 @@ class _RailButton extends StatelessWidget {
     required this.label,
     required this.onTap,
     required this.semanticLabel,
+    this.filledIcon,
     this.filled = false,
     this.activeColor,
   });
 
+  /// The outline glyph.
   final String icon;
+
+  /// The solid glyph, used when the action is on.
+  final String? filledIcon;
+
   final String label;
   final VoidCallback onTap;
   final String semanticLabel;
@@ -955,11 +961,10 @@ class _RailButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            LucideIcon(
-              icon,
-              size: 33,
-              strokeWidth: 1.9,
-              filled: filled,
+            // A real Ionicons vector, 32-on-512 stroke, from the web build.
+            IonIcon(
+              filled && filledIcon != null ? filledIcon! : icon,
+              size: 34,
               color: color,
             ),
             const SizedBox(height: 4),

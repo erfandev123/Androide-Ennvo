@@ -30,6 +30,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/services/voice_recorder.dart';
+import '../../../shared/icons/ion_icons.dart';
 import '../../../shared/icons/lucide_icons.dart';
 import '../models/reel_comment.dart';
 
@@ -241,6 +242,10 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
     final t = context.tokens;
     final media = MediaQuery.of(context);
     final keyboard = media.viewInsets.bottom;
+    // The phone draws its back / home / overview buttons over the bottom of
+    // an edge-to-edge screen. The composer must clear them as well as the
+    // keyboard, or those buttons sit on top of the input.
+    final systemBottom = media.padding.bottom;
     final count = widget.comments.length;
 
     // The sheet never changes its size: the keyboard does not move it, so
@@ -460,7 +465,8 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
           Positioned(
             left: 0,
             right: 0,
-            bottom: keyboard,
+            // Above the keyboard AND above the phone's navigation buttons.
+            bottom: keyboard + systemBottom,
             child: _Composer(
               controller: _input,
               focusNode: _focus,
@@ -567,12 +573,13 @@ class _Composer extends StatelessWidget {
           // --- the input ---------------------------------------------
           Expanded(
             child: Container(
-              height: 44,
-              padding: const EdgeInsets.only(left: 16, right: 6),
+              height: 46,
+              padding: const EdgeInsets.only(left: 14, right: 4),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: t.borderStrong, width: 1.25),
-                color: expanded ? t.surfaceAlt : Colors.transparent,
+                borderRadius: BorderRadius.circular(23),
+                // A soft filled field. No hairline outline: the old ring
+                // around the hint looked like a badge, not like an input.
+                color: t.surfaceAlt,
               ),
               child: Row(
                 children: [
@@ -592,10 +599,10 @@ class _Composer extends StatelessWidget {
                         isDense: true,
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.zero,
-                        hintText: 'Add a comment…',
+                        hintText: 'Add a comment',
                         hintStyle: EnnvoText.body.copyWith(
                           color: t.textTertiary,
-                          fontSize: 14.5,
+                          fontSize: 14,
                         ),
                       ),
                     ),
@@ -635,32 +642,40 @@ class _Composer extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 9),
 
           // --- the send button ---------------------------------------
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: canSend && !sending ? onSend : null,
-            child: Opacity(
-              opacity: canSend ? 1 : 0.4,
-              child: Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: canSend
-                      ? AppGradients.create
-                      : const LinearGradient(
-                          colors: [Color(0xFFD4D4D8), Color(0xFFA1A1AA)],
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: canSend
+                    ? AppGradients.create
+                    : null,
+                color: canSend ? null : t.surfaceAlt,
+                boxShadow: canSend
+                    ? const [
+                        BoxShadow(
+                          color: Color(0x5938BDF8),
+                          blurRadius: 12,
+                          offset: Offset(0, 4),
                         ),
-                ),
-                alignment: Alignment.center,
-                child: const LucideIcon(
-                  LucideIcons.send,
-                  size: 19,
-                  strokeWidth: 2.2,
-                  color: Colors.white,
-                ),
+                      ]
+                    : null,
+              ),
+              alignment: Alignment.center,
+              child: IonIcon(
+                IonIcons.share,
+                size: 20,
+                color: canSend
+                    ? Colors.white
+                    : t.textTertiary.withValues(alpha: 0.7),
               ),
             ),
           ),
@@ -809,20 +824,26 @@ class _ComposerIcon extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: Container(
-          width: 34,
-          height: 34,
-          margin: const EdgeInsets.only(left: 2),
+          width: 30,
+          height: 30,
+          margin: const EdgeInsets.only(left: 1),
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: active ? t.surfaceAlt : Colors.transparent,
           ),
           alignment: Alignment.center,
-          child: LucideIcon(
-            icon,
-            size: 20,
-            strokeWidth: 1.9,
-            color: active ? t.accent : t.textTertiary,
-          ),
+          child: icon.contains('viewBox="0 0 512')
+              ? IonIcon(
+                  icon,
+                  size: 21,
+                  color: active ? t.accent : t.textTertiary,
+                )
+              : LucideIcon(
+                  icon,
+                  size: 20,
+                  strokeWidth: 1.9,
+                  color: active ? t.accent : t.textTertiary,
+                ),
         ),
       ),
     );
@@ -1011,11 +1032,11 @@ class _CommentLine extends StatelessWidget {
                 width: 32,
                 child: Column(
                   children: [
-                    LucideIcon(
-                      LucideIcons.heart,
-                      size: 17,
-                      strokeWidth: 1.8,
-                      filled: comment.isLiked,
+                    IonIcon(
+                      comment.isLiked
+                          ? IonIcons.heartFilled
+                          : IonIcons.heartOutline,
+                      size: 18,
                       color: comment.isLiked
                           ? const Color(0xFFFF2D55)
                           : t.textTertiary,

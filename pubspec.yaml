@@ -30,6 +30,9 @@ dependencies:
   # The camera and the photo picker of the composer.
   image_picker: ^1.1.2
 
+  # The live camera: preview, photo and smooth video recording.
+  camera: ^0.12.2
+
   # Icons — the SVG renderer keeps the original Lucide and custom icon
   # markup, so the native build draws the same glyphs as the web build.
   flutter_svg: ^2.4.0

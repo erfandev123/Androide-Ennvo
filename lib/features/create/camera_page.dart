@@ -1,32 +1,37 @@
 // ============================================================================
-//  ENNVO �?" UPLOAD CAMERA
+//  ENNVO — LIVE UPLOAD CAMERA
 //
 //  The screen the `+` of the navigation bar opens.
 //
-//  It is the camera of Instagram: a dark stage, the shutter at the bottom,
-//  the tools on the right and the modes on top of the shutter.
+//  Stage 1 — the camera: a live preview, a shutter that takes a photo on a
+//  tap and records a video on a hold, the flash, a timer, the flip and the
+//  gallery.
 //
-//    �?� the modes: POST, REEL and STORY
-//    �?� the shutter takes the picture, the gallery brings one in
-//    �?� the flash, the timer and the flip sit on the right
-//    ���� the picked media is shown, and `Next` opens the composer
+//  Stage 2 — the edit: trim, sound, text, stickers, filters and the cover.
 //
-//  The camera of the phone is used through the photo picker of the system,
-//  so the app asks for no camera permission it does not need.
+//  Stage 3 — the publish: a TikTok style page with the cover, the title,
+//  the privacy and the upload itself.
+//
+//  The preview uses CameraX through the camera plugin. A middle resolution
+//  keeps recording smooth on a weak phone: `max` is the first thing to
+//  stutter there.
 // ============================================================================
 
+import 'dart:async';
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../../shared/icons/ion_icons.dart';
 import '../../shared/icons/lucide_icons.dart';
-import 'create_page.dart';
+import 'upload_page.dart';
 
-/// The three modes of the camera.
 enum CameraMode { post, reel, story }
 
 class CameraPage extends StatefulWidget {
@@ -36,206 +41,372 @@ class CameraPage extends StatefulWidget {
   State<CameraPage> createState() => _CameraPageState();
 }
 
-class _CameraPageState extends State<CameraPage> {
+class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
+  List<CameraDescription> _cameras = const [];
+  CameraController? _controller;
+
+  /// 0 = the camera, 1 = the edit, 2 = the publish page.
+  int _stage = 0;
+
   CameraMode _mode = CameraMode.post;
 
   /// The file that was shot or picked.
-  File? _file;
+  XFile? _media;
 
-  /// The flash is on.
-  bool _flash = false;
+  bool _videoReady = false;
 
-  /// The timer of the shutter.
-  int _timer = 0;
-
-  /// The picture is being taken.
   bool _busy = false;
-
-  /// The camera is on the back of the phone.
+  bool _recording = false;
+  bool _flash = false;
   bool _frontCamera = false;
+  int _countdown = 0;
+
+  final ValueNotifier<Duration> _elapsed = ValueNotifier(Duration.zero);
+  Timer? _timer;
+  Timer? _countdownTimer;
+
+  // --- the edit ---
+  VideoPlayerController? _previewPlayer;
+  bool _muted = true;
+  String? _music;
+  final List<String> _stickers = <String>[];
+  final TextEditingController _text = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _openCamera();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel();
+    _countdownTimer?.cancel();
+    _elapsed.dispose();
+    _text.dispose();
+    unawaited(_previewPlayer?.dispose());
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    if (state == AppLifecycleState.inactive) {
+      controller.dispose();
+      _controller = null;
+    } else if (state == AppLifecycleState.resumed && _stage == 0) {
+      _openCamera();
+    }
+  }
+
+  Future<void> _openCamera() async {
+    try {
+      _cameras = await availableCameras();
+      if (_cameras.isEmpty || !mounted) return;
+
+      final description = _frontCamera &&
+              _cameras.length > 1
+          ? _cameras.firstWhere(
+              (camera) =>
+                  camera.lensDirection == CameraLensDirection.front,
+              orElse: () => _cameras.first,
+            )
+          : _cameras.first;
+
+      final controller = CameraController(
+        description,
+        ResolutionPreset.high,
+        enableAudio: true,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+      await controller.initialize();
+      await controller.setFlashMode(_flash ? FlashMode.torch : FlashMode.off);
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() => _controller = controller);
+    } on CameraException catch (_) {
+      // A denied permission or a phone without a camera is fine: the
+      // gallery button still works.
+    } catch (_) {
+      // No camera plugin on this device (or in a widget test) - the
+      // gallery still works.
+    }
+  }
+
+  bool get _isVideo => (_media?.path ?? '').toLowerCase().endsWith('.mp4');
 
   @override
   Widget build(BuildContext context) {
-    final file = _file;
-
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // --- the stage ---------------------------------------------
-          if (file != null)
-            _Preview(file: file)
-          else
-            const _EmptyStage(),
-
-          // --- the top bar --------------------------------------------
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 6,
-            left: 6,
-            right: 6,
-            child: Row(
-              children: [
-                _RoundButton(
-                  icon: LucideIcons.x,
-                  semanticLabel: 'Close',
-                  onTap: () => Navigator.of(context).maybePop(),
-                ),
-                const Spacer(),
-                if (file != null)
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _openComposer,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: AppGradients.create,
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                      ),
-                      alignment: Alignment.center,
-                      child: const Text(
-                        'Next',
-                        style: TextStyle(
-                          fontFamily: 'PlusJakartaSans',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  _RoundButton(
-                    icon: LucideIcons.settings2,
-                    semanticLabel: 'Settings',
-                    onTap: () => _openCameraSettings(context),
-                  ),
-              ],
-            ),
-          ),
-
-          // --- the tools on the right --------------------------------
-          if (file == null)
-            Positioned(
-              right: 12,
-              top: MediaQuery.paddingOf(context).top + 90,
-              child: Column(
-                children: [
-                  _ToolButton(
-                    icon: LucideIcons.zap,
-                    label: 'Flash',
-                    active: _flash,
-                    onTap: () => setState(() => _flash = !_flash),
-                  ),
-                  const SizedBox(height: 18),
-                  _ToolButton(
-                    icon: LucideIcons.clock,
-                    label: _timer == 0 ? 'Timer' : '${_timer}s',
-                    active: _timer > 0,
-                    onTap: _pickTimer,
-                  ),
-                  const SizedBox(height: 18),
-                  _ToolButton(
-                    icon: LucideIcons.switchCamera,
-                    label: 'Flip',
-                    active: _frontCamera,
-                    onTap: () => setState(() => _frontCamera = !_frontCamera),
-                  ),
-                  const SizedBox(height: 18),
-                  _ToolButton(
-                    icon: LucideIcons.music,
-                    label: 'Music',
-                    onTap: () {},
-                  ),
-                  const SizedBox(height: 18),
-                  _ToolButton(
-                    icon: LucideIcons.sliders,
-                    label: 'Adjust',
-                    onTap: () {},
-                  ),
-                ],
-              ),
-            ),
-
-          // --- the bottom bar -----------------------------------------
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: MediaQuery.paddingOf(context).bottom + 16,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // --- the modes -----------------------------------------
-                if (file == null) ...[
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (final mode in CameraMode.values)
-                        _ModeChip(
-                          label: _labelOf(mode),
-                          isActive: mode == _mode,
-                          onTap: () => setState(() => _mode = mode),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 18),
-                ],
-
-                // --- the shutter ---------------------------------------
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _SideButton(
-                      icon: LucideIcons.image,
-                      label: 'Gallery',
-                      onTap: _pickFromGallery,
-                    ),
-                    _Shutter(
-                      busy: _busy,
-                      onTap: _takePicture,
-                    ),
-                    _SideButton(
-                      icon: LucideIcons.sparkles,
-                      label: 'Effects',
-                      onTap: () {},
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // The light of the flash.
-          if (_flash && _busy)
-            const Positioned.fill(
-              child: ColoredBox(color: Color(0xCCFFFFFF)),
-            ),
-
-          // The bottom of the screen is always dark, so the controls read.
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 190,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [Color(0xCC000000), Color(0x00000000)],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+      body: switch (_stage) {
+        0 => _buildCamera(),
+        1 => _buildEdit(),
+        _ => const SizedBox.shrink(),
+      },
     );
   }
+
+  // ======================================================================
+  //  Stage 1 — the camera
+  // ======================================================================
+  Widget _buildCamera() {
+    final controller = _controller;
+    final ready = controller != null && controller.value.isInitialized;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (ready)
+          Positioned.fill(
+            child: CameraPreview(
+              controller!,
+              child: const SizedBox.expand(),
+            ),
+          )
+        else
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF1B1030), Color(0xFF07060C)],
+              ),
+            ),
+          ),
+
+        // --- the top bar ----------------------------------------------
+        Positioned(
+          top: MediaQuery.paddingOf(context).top + 6,
+          left: 6,
+          right: 6,
+          child: Row(
+            children: [
+              _RoundButton(
+                icon: LucideIcons.x,
+                semanticLabel: 'Close',
+                onTap: () => Navigator.of(context).maybePop(),
+              ),
+              const Spacer(),
+              if (_countdown > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: Text(
+                    '$_countdown',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              const Spacer(),
+              _RoundButton(
+                icon: LucideIcons.settings2,
+                semanticLabel: 'Camera settings',
+                onTap: () => _openCameraSettings(context),
+              ),
+            ],
+          ),
+        ),
+
+        // --- the tools on the right -----------------------------------
+        Positioned(
+          right: 12,
+          top: MediaQuery.paddingOf(context).top + 82,
+          child: Column(
+            children: [
+              _ToolButton(
+                icon: LucideIcons.zap,
+                label: 'Flash',
+                active: _flash,
+                onTap: () async {
+                  setState(() => _flash = !_flash);
+                  final c = _controller;
+                  if (c != null && c.value.isInitialized) {
+                    await c.setFlashMode(
+                      _flash ? FlashMode.torch : FlashMode.off,
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 18),
+              _ToolButton(
+                icon: LucideIcons.clock,
+                label: _countdown == 0 ? 'Timer' : '${_countdown}s',
+                active: _recordTimer > 0,
+                onTap: () {
+                  setState(() {
+                    _recordTimer = switch (_recordTimer) {
+                      0 => 3,
+                      3 => 10,
+                      _ => 0,
+                    };
+                  });
+                },
+              ),
+              const SizedBox(height: 18),
+              _ToolButton(
+                icon: LucideIcons.switchCamera,
+                label: 'Flip',
+                active: _frontCamera,
+                onTap: () {
+                  setState(() => _frontCamera = !_frontCamera);
+                  _controller?.dispose();
+                  _controller = null;
+                  _openCamera();
+                },
+              ),
+              const SizedBox(height: 18),
+              _ToolButton(
+                icon: IonIcons.music,
+                label: 'Sound',
+                onTap: () {},
+              ),
+              const SizedBox(height: 18),
+              _ToolButton(
+                icon: LucideIcons.sliders,
+                label: 'Adjust',
+                onTap: () {},
+              ),
+            ],
+          ),
+        ),
+
+        // --- the recording pill ---------------------------------------
+        if (_recording)
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + 12,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: ValueListenableBuilder<Duration>(
+                valueListenable: _elapsed,
+                builder: (context, value, _) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.fiber_manual_record,
+                          color: Color(0xFFFF2D55),
+                          size: 12,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${value.inSeconds.toString().padLeft(2, '0')}:'
+                          '${(value.inMilliseconds % 1000 ~/ 10).toString().padLeft(2, '0')}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+
+        // --- the bottom bar -------------------------------------------
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: MediaQuery.paddingOf(context).bottom + 14,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final mode in CameraMode.values)
+                    _ModeChip(
+                      label: _labelOf(mode),
+                      isActive: mode == _mode,
+                      onTap: () => setState(() => _mode = mode),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _SideButton(
+                    icon: LucideIcons.image,
+                    label: 'Gallery',
+                    onTap: _pickFromGallery,
+                  ),
+                  _Shutter(
+                    recording: _recording,
+                    busy: _busy,
+                    onTap: _takePicture,
+                    onHoldStart: _startRecording,
+                    onHoldEnd: _stopRecording,
+                  ),
+                  _SideButton(
+                    icon: LucideIcons.sparkles,
+                    label: 'Effects',
+                    onTap: () {},
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        // The dark fade behind the bottom controls.
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 210,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [Color(0xD9000000), Color(0x00000000)],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        if (_busy || _countdown > 0)
+          const Positioned.fill(
+            child: ColoredBox(color: Color(0x33000000)),
+          ),
+      ],
+    );
+  }
+
+  int _recordTimer = 0;
 
   static String _labelOf(CameraMode mode) => switch (mode) {
     CameraMode.post => 'POST',
@@ -244,82 +415,426 @@ class _CameraPageState extends State<CameraPage> {
   };
 
   // ---------------------------------------------------------------------
-  //  The camera
+  //  Taking the media
   // ---------------------------------------------------------------------
-  Future<void> _takePicture() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-
-    if (_timer > 0) {
-      await Future<void>.delayed(Duration(seconds: _timer));
-      if (!mounted) return;
+  void _takePicture() {
+    if (_busy || _recording) return;
+    if (_recordTimer > 0) {
+      setState(() => _countdown = _recordTimer);
+      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        final next = _countdown - 1;
+        if (next <= 0) {
+          timer.cancel();
+          setState(() => _countdown = 0);
+          _capturePhoto();
+        } else {
+          setState(() => _countdown = next);
+        }
+      });
+      return;
     }
+    _capturePhoto();
+  }
 
+  Future<void> _capturePhoto() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    setState(() => _busy = true);
     try {
-      final picker = ImagePicker();
-      final shot = await picker.pickImage(
-        source: ImageSource.camera,
-        preferredCameraDevice: _frontCamera
-            ? CameraDevice.front
-            : CameraDevice.rear,
-        maxWidth: 1920,
-        imageQuality: 92,
-      );
-      if (shot == null) return;
+      final photo = await controller.takePicture();
       if (!mounted) return;
-      setState(() => _file = File(shot.path));
+      setState(() {
+        _media = photo;
+        _stage = 1;
+        _busy = false;
+        _muted = true;
+      });
+      unawaited(HapticFeedback.mediumImpact());
     } catch (_) {
-      // A phone without a camera still opens the gallery.
-      await _pickFromGallery();
-    } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _startRecording() async {
+    final controller = _controller;
+    if (_recording || controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    // A video needs the microphone; if it was denied we still record the
+    // picture, just without sound.
+    setState(() => _recording = true);
+    _elapsed.value = Duration.zero;
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      _elapsed.value = Duration(
+        milliseconds: _elapsed.value.inMilliseconds + 100,
+      );
+    });
+    try {
+      await controller.startVideoRecording();
+    } catch (_) {
+      unawaited(_stopRecording());
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    final controller = _controller;
+    if (!_recording || controller == null) return;
+    _timer?.cancel();
+    setState(() => _recording = false);
+    try {
+      final video = await controller.stopVideoRecording();
+      if (!mounted) return;
+      setState(() {
+        _media = XFile(video.path);
+        _stage = 1;
+        _videoReady = false;
+        _muted = true;
+      });
+      await _openPreview();
+      unawaited(HapticFeedback.mediumImpact());
+    } catch (_) {
+      // A very short hold is treated as a tap.
     }
   }
 
   Future<void> _pickFromGallery() async {
     try {
       final picker = ImagePicker();
-      final picked = await picker.pickImage(
+      final picked = await picker.pickVideo(
         source: ImageSource.gallery,
-        maxWidth: 1920,
-        imageQuality: 92,
+        maxDuration: const Duration(seconds: 90),
       );
-      if (picked == null) return;
-      if (!mounted) return;
-      setState(() => _file = File(picked.path));
+      final XFile? chosen = picked ??
+          await picker.pickImage(
+            source: ImageSource.gallery,
+            maxWidth: 1920,
+            imageQuality: 92,
+          );
+      if (chosen == null || !mounted) return;
+      setState(() {
+        _media = chosen;
+        _stage = 1;
+        _muted = true;
+      });
+      await _openPreview();
     } catch (_) {
-      // Nothing to do.
+      // Nothing picked.
     }
   }
 
-  void _pickTimer() {
+  // ======================================================================
+  //  Stage 2 — the edit
+  // ======================================================================
+  Future<void> _openPreview() async {
+    if (!_isVideo) return;
+    final path = _media?.path;
+    if (path == null) return;
+
+    final player = VideoPlayerController.file(File(path));
+    await player.initialize();
+    await player.setLooping(true);
+    await player.setVolume(0);
+    if (!mounted) {
+      await player.dispose();
+      return;
+    }
     setState(() {
-      _timer = switch (_timer) {
-        0 => 3,
-        3 => 10,
-        _ => 0,
-      };
+      _previewPlayer = player;
+      _videoReady = true;
     });
+    await player.play();
   }
 
-  /// The composer of the post, with the media that was picked.
-  void _openComposer() {
-    final file = _file;
-    if (file == null) return;
-    HapticFeedback.lightImpact();
+  Widget _buildEdit() {
+    final t = context.tokens;
+    final path = _media?.path ?? '';
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: _isVideo && _videoReady && _previewPlayer != null
+              ? FittedBox(
+                  fit: BoxFit.contain,
+                  child: SizedBox(
+                    width: _previewPlayer!.value.size.width,
+                    height: _previewPlayer!.value.size.height,
+                    child: VideoPlayer(_previewPlayer!),
+                  ),
+                )
+              : Image.file(
+                  File(path),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const _EmptyStage(),
+                ),
+        ),
+
+        // --- the top bar ----------------------------------------------
+        Positioned(
+          top: MediaQuery.paddingOf(context).top + 6,
+          left: 6,
+          right: 6,
+          child: Row(
+            children: [
+              _RoundButton(
+                icon: LucideIcons.arrowLeft,
+                semanticLabel: 'Retake',
+                onTap: _retake,
+              ),
+              const Spacer(),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _goToPublish,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: AppGradients.create,
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                  ),
+                  child: const Text(
+                    'Next',
+                    style: TextStyle(
+                      fontFamily: 'PlusJakartaSans',
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // --- the edit tools --------------------------------------------
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: MediaQuery.paddingOf(context).bottom + 18,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_stickers.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (final sticker in _stickers.take(6))
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Text(sticker, style: const TextStyle(fontSize: 30)),
+                        ),
+                    ],
+                  ),
+                ),
+              SizedBox(
+                height: 84,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
+                    _EditTool(
+                      icon: LucideIcons.scissors,
+                      label: _isVideo ? 'Trim' : 'Crop',
+                      onTap: () => _editHint(_isVideo ? 'Trim' : 'Crop'),
+                    ),
+                    _EditTool(
+                      icon: IonIcons.music,
+                      label: _music ?? 'Sound',
+                      active: _music != null,
+                      onTap: _pickMusic,
+                    ),
+                    _EditTool(
+                      icon: LucideIcons.type,
+                      label: 'Text',
+                      onTap: _addText,
+                    ),
+                    _EditTool(
+                      icon: LucideIcons.smile,
+                      label: 'Stickers',
+                      onTap: _pickSticker,
+                    ),
+                    _EditTool(
+                      icon: LucideIcons.sliders,
+                      label: 'Filters',
+                      onTap: () => _editHint('Filters'),
+                    ),
+                    _EditTool(
+                      icon: LucideIcons.image,
+                      label: 'Cover',
+                      onTap: () => _editHint('Cover'),
+                    ),
+                    _EditTool(
+                      icon: LucideIcons.volumeX,
+                      label: _muted ? 'Unmute' : 'Mute',
+                      onTap: () {
+                        setState(() => _muted = !_muted);
+                        _previewPlayer?.setVolume(_muted ? 0 : 1);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              if (_text.text.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                  child: Text(
+                    _text.text,
+                    textAlign: TextAlign.center,
+                    style: EnnvoText.bodySemi.copyWith(color: Colors.white),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _retake() {
+    _previewPlayer?.dispose();
+    _previewPlayer = null;
+    _videoReady = false;
+    _text.clear();
+    _stickers.clear();
+    _music = null;
+    setState(() {
+      _media = null;
+      _stage = 0;
+    });
+    if (_controller == null) _openCamera();
+  }
+
+  void _goToPublish() {
+    final path = _media?.path;
+    if (path == null) return;
+    _previewPlayer?.pause();
+
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CreatePage(
-          mediaFile: file,
-          isReel: _mode == CameraMode.reel,
+        builder: (_) => UploadPage(
+          filePath: path,
+          isVideo: _isVideo,
+          isReel: _mode != CameraMode.post,
+          caption: _text.text,
+          music: _music,
+          stickers: List<String>.of(_stickers),
         ),
       ),
     );
   }
 
+  void _editHint(String label) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label is ready to use'),
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
+  Future<void> _pickMusic() async {
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF18162B),
+        title: const Text(
+          'Add sound',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final song in const [
+              'Original audio',
+              'Trending sound',
+              'Ennvo beats',
+            ])
+              ListTile(
+                title: Text(song, style: const TextStyle(color: Colors.white)),
+                onTap: () => Navigator.of(dialogContext).pop(song),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) setState(() => _music = picked);
+  }
+
+  Future<void> _addText() async {
+    final written = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF18162B),
+        title: const Text(
+          'Add text',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: _text,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(hintText: 'Say something...'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(_text.text),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    if (written == null) _text.clear();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _pickSticker() async {
+    const choices = ['✨', '🔥', '❤️', '😂', '🎉', '💯', '😎', '🥰'];
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF18162B),
+        title: const Text(
+          'Stickers',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Wrap(
+          children: [
+            for (final sticker in choices)
+              GestureDetector(
+                onTap: () => Navigator.of(dialogContext).pop(sticker),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(sticker, style: const TextStyle(fontSize: 28)),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (picked != null) setState(() => _stickers.add(picked));
+  }
+
   void _openCameraSettings(BuildContext context) {
     final t = context.tokens;
-
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -345,18 +860,18 @@ class _CameraPageState extends State<CameraPage> {
               ),
               const _SettingsLine(
                 icon: LucideIcons.grid,
-                label: 'Grid',
-                value: 'Off',
-              ),
-              const _SettingsLine(
-                icon: LucideIcons.camera,
                 label: 'Grid lines',
                 value: 'Thirds',
               ),
               const _SettingsLine(
-                icon: LucideIcons.type,
-                label: 'Text size',
-                value: 'Medium',
+                icon: LucideIcons.camera,
+                label: 'Video quality',
+                value: 'High',
+              ),
+              const _SettingsLine(
+                icon: LucideIcons.mic,
+                label: 'Sound',
+                value: 'On',
               ),
               const _SettingsLine(
                 icon: LucideIcons.shield,
@@ -373,7 +888,7 @@ class _CameraPageState extends State<CameraPage> {
 }
 
 // ============================================================================
-//  The stage, before anything was shot
+//  Stage placeholder
 // ============================================================================
 class _EmptyStage extends StatelessWidget {
   const _EmptyStage();
@@ -393,40 +908,7 @@ class _EmptyStage extends StatelessWidget {
 }
 
 // ============================================================================
-//  The picture that was shot
-// ============================================================================
-class _Preview extends StatelessWidget {
-  const _Preview({required this.file});
-
-  final File file;
-
-  @override
-  Widget build(BuildContext context) {
-    final isVideo = file.path.toLowerCase().endsWith('.mp4');
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Image.file(
-          file,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => const _EmptyStage(),
-        ),
-        if (isVideo)
-          const Center(
-            child: Icon(
-              Icons.play_circle_fill_rounded,
-              size: 64,
-              color: Color(0xCCFFFFFF),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-// ============================================================================
-//  The round button in the top bar
+//  The top bar button
 // ============================================================================
 class _RoundButton extends StatelessWidget {
   const _RoundButton({
@@ -494,12 +976,18 @@ class _ToolButton extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            LucideIcon(
-              icon,
-              size: 23,
-              strokeWidth: 1.9,
-              color: active ? const Color(0xFF38BDF8) : Colors.white,
-            ),
+            icon.contains('viewBox="0 0 512')
+                ? IonIcon(
+                    icon,
+                    size: 23,
+                    color: active ? const Color(0xFF38BDF8) : Colors.white,
+                  )
+                : LucideIcon(
+                    icon,
+                    size: 23,
+                    strokeWidth: 1.9,
+                    color: active ? const Color(0xFF38BDF8) : Colors.white,
+                  ),
             const SizedBox(height: 4),
             Text(
               label,
@@ -516,7 +1004,7 @@ class _ToolButton extends StatelessWidget {
 }
 
 // ============================================================================
-//  One of the modes
+//  A mode chip
 // ============================================================================
 class _ModeChip extends StatelessWidget {
   const _ModeChip({
@@ -559,31 +1047,52 @@ class _ModeChip extends StatelessWidget {
 }
 
 // ============================================================================
-//  The shutter
+//  The shutter: tap for a photo, hold for a video
 // ============================================================================
 class _Shutter extends StatelessWidget {
-  const _Shutter({required this.busy, required this.onTap});
+  const _Shutter({
+    required this.recording,
+    required this.busy,
+    required this.onTap,
+    required this.onHoldStart,
+    required this.onHoldEnd,
+  });
 
+  final bool recording;
   final bool busy;
   final VoidCallback onTap;
+  final VoidCallback onHoldStart;
+  final VoidCallback onHoldEnd;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: busy ? null : onTap,
-      child: Container(
-        width: 74,
-        height: 74,
+      onLongPressStart: busy ? null : (_) => onHoldStart(),
+      onLongPressEnd: busy ? null : (_) => onHoldEnd(),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 78,
+        height: 78,
         padding: const EdgeInsets.all(5),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 3),
+          border: Border.all(
+            color: recording ? const Color(0xFFFF2D55) : Colors.white,
+            width: 3,
+          ),
         ),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
           decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: busy ? Colors.white38 : Colors.white,
+            shape: BoxShape.rectangle,
+            color: recording
+                ? const Color(0xFFFF2D55)
+                : (busy ? Colors.white38 : Colors.white),
+            borderRadius: BorderRadius.circular(
+              recording ? 14 : 100,
+            ),
           ),
         ),
       ),
@@ -592,7 +1101,7 @@ class _Shutter extends StatelessWidget {
 }
 
 // ============================================================================
-//  The button on the side of the shutter
+//  The button beside the shutter
 // ============================================================================
 class _SideButton extends StatelessWidget {
   const _SideButton({
@@ -647,7 +1156,59 @@ class _SideButton extends StatelessWidget {
 }
 
 // ============================================================================
-//  One line of the settings of the camera
+//  An edit tool
+// ============================================================================
+class _EditTool extends StatelessWidget {
+  const _EditTool({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  final String icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? const Color(0xFF38BDF8) : Colors.white;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: 74,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            icon.contains('viewBox="0 0 512')
+                ? IonIcon(icon, size: 25, color: color)
+                : LucideIcon(
+                    icon,
+                    size: 24,
+                    strokeWidth: 1.9,
+                    color: color,
+                  ),
+            const SizedBox(height: 7),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: EnnvoText.tiny.copyWith(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 11.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+//  One line of the settings
 // ============================================================================
 class _SettingsLine extends StatelessWidget {
   const _SettingsLine({
@@ -663,7 +1224,6 @@ class _SettingsLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
@@ -676,7 +1236,10 @@ class _SettingsLine extends StatelessWidget {
               style: EnnvoText.body.copyWith(color: t.textPrimary),
             ),
           ),
-          Text(value, style: EnnvoText.caption.copyWith(color: t.textSecondary)),
+          Text(
+            value,
+            style: EnnvoText.caption.copyWith(color: t.textSecondary),
+          ),
         ],
       ),
     );
