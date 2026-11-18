@@ -128,8 +128,14 @@ void main() {
       ]);
     });
 
-    test('the splash paints the purple of the brand', () {
-      expect(kEnnvoPurple, const Color(0xFF5B21B6));
+    test('the splash is pure black, like the Android window', () {
+      expect(kEnnvoSplashBlack, const Color(0xFF000000));
+    });
+
+    test('the white mark the splash draws is there', () {
+      final file = File('assets/brand/ennvo_mark_white.png');
+      expect(file.existsSync(), isTrue);
+      expect(file.lengthSync(), greaterThan(1000));
     });
   });
 }

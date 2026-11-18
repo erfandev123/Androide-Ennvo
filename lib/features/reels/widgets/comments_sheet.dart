@@ -35,6 +35,9 @@ import '../../../shared/icons/lucide_icons.dart';
 import '../models/reel_comment.dart';
 import 'comment_attachments.dart';
 
+/// The blue of the brand: the heart of a comment and the send button.
+const Color _kCommentBlue = Color(0xFF2AA1FB);
+
 /// The emoji the sticker tray offers.
 const List<String> kStickerEmoji = [
   '❤️', '😂', '😍', '😮', '😢', '👍',
@@ -612,116 +615,142 @@ class _Composer extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
       decoration: BoxDecoration(
         color: t.surface,
         border: Border(top: BorderSide(color: t.border)),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           // --- the picture of the user ------------------------------
           _UserAvatar(url: avatarUrl, name: userName),
-          const SizedBox(width: 10),
+          const SizedBox(width: 9),
 
-          // --- the input ---------------------------------------------
-          // No pill, no rounded box, no outline: just the text on the
-          // surface, the way the composer reads in the web app.
+          // --- the rounded input box --------------------------------
+          // One real box, the way the web app draws it: a soft grey pill
+          // that holds the text and the small buttons. The hint carries no
+          // border and no ring of its own — the box is the only shape.
           Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    focusNode: focusNode,
-                    onChanged: onChanged,
-                    onSubmitted: (_) => onSend(),
-                    textInputAction: TextInputAction.send,
-                    style: EnnvoText.body.copyWith(
-                      color: t.textPrimary,
-                      fontSize: 14.5,
-                    ),
-                    cursorColor: t.accent,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                      hintText: 'Add a comment',
-                      hintStyle: EnnvoText.body.copyWith(
-                        color: t.textTertiary,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 40),
+              padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
+              decoration: BoxDecoration(
+                color: t.surfaceAlt,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: t.border),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      focusNode: focusNode,
+                      onChanged: onChanged,
+                      minLines: 1,
+                      maxLines: 5,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.newline,
+                      textCapitalization: TextCapitalization.sentences,
+                      style: EnnvoText.body.copyWith(
+                        color: t.textPrimary,
                         fontSize: 14.5,
+                        height: 1.35,
+                      ),
+                      cursorColor: t.accent,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 10,
+                        ),
+                        hintText: 'Add a comment',
+                        hintStyle: EnnvoText.body.copyWith(
+                          color: t.textTertiary,
+                          fontSize: 14.5,
+                        ),
                       ),
                     ),
                   ),
-                ),
 
-                // The sticker, the photo and the voice buttons go away
-                // while the keyboard is up: the separate box carries the
-                // input and the send button and nothing else.
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 140),
-                  curve: Curves.easeOut,
-                  child: expanded
-                      ? const SizedBox.shrink()
-                      : Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _ComposerIcon(
-                              icon: LucideIcons.smile,
-                              active: stickerActive,
-                              onTap: onSticker,
-                              semanticLabel: 'Sticker',
-                            ),
-                            _ComposerIcon(
-                              icon: LucideIcons.image,
-                              onTap: onPhoto,
-                              semanticLabel: 'Photo',
-                            ),
-                            _ComposerIcon(
-                              icon: LucideIcons.mic,
-                              onTap: onMic,
-                              semanticLabel: 'Voice',
-                            ),
-                          ],
-                        ),
-                ),
-              ],
+                  // The sticker, the photo and the voice buttons go away
+                  // while the keyboard is up: the separate box carries the
+                  // input and the send button and nothing else.
+                  AnimatedSize(
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeOut,
+                    alignment: Alignment.centerRight,
+                    child: expanded
+                        ? const SizedBox.shrink()
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _ComposerIcon(
+                                icon: LucideIcons.smile,
+                                active: stickerActive,
+                                onTap: onSticker,
+                                semanticLabel: 'Sticker',
+                              ),
+                              _ComposerIcon(
+                                icon: LucideIcons.image,
+                                onTap: onPhoto,
+                                semanticLabel: 'Photo',
+                              ),
+                              _ComposerIcon(
+                                icon: LucideIcons.mic,
+                                onTap: onMic,
+                                semanticLabel: 'Voice',
+                              ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: 9),
+          const SizedBox(width: 8),
 
           // --- the send button ---------------------------------------
+          // A clean blue circle with a real paper plane. It changes colour
+          // in place — it never changes size, so the row does not jump.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: canSend && !sending ? onSend : null,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
+            child: AnimatedScale(
+              scale: canSend ? 1 : 0.94,
+              duration: const Duration(milliseconds: 160),
               curve: Curves.easeOut,
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: canSend
-                    ? AppGradients.create
-                    : null,
-                color: canSend ? null : t.surfaceAlt,
-                boxShadow: canSend
-                    ? const [
-                        BoxShadow(
-                          color: Color(0x5938BDF8),
-                          blurRadius: 12,
-                          offset: Offset(0, 4),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                curve: Curves.easeOut,
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: canSend ? _kCommentBlue : t.surfaceAlt,
+                  border: Border.all(
+                    color: canSend ? _kCommentBlue : t.border,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: sending
+                    ? const SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation(Colors.white),
                         ),
-                      ]
-                    : null,
-              ),
-              alignment: Alignment.center,
-              child: IonIcon(
-                IonIcons.share,
-                size: 20,
-                color: canSend
-                    ? Colors.white
-                    : t.textTertiary.withValues(alpha: 0.7),
+                      )
+                    : LucideIcon(
+                        LucideIcons.send,
+                        size: 17,
+                        strokeWidth: 2.3,
+                        color: canSend ? Colors.white : t.textTertiary,
+                      ),
               ),
             ),
           ),
@@ -745,8 +774,8 @@ class _UserAvatar extends StatelessWidget {
     final t = context.tokens;
 
     return Container(
-      width: 36,
-      height: 36,
+      width: 38,
+      height: 38,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: t.surfaceAlt,
@@ -1205,7 +1234,7 @@ class _CommentLine extends StatelessWidget {
                           : IonIcons.heartOutline,
                       size: 18,
                       color: comment.isLiked
-                          ? const Color(0xFFFF2D55)
+                          ? _kCommentBlue
                           : t.textTertiary,
                     ),
                     if (comment.likesCount > 0) ...[

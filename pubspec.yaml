@@ -60,8 +60,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/brand/ennvo_logo.png
-    - assets/brand/ennvo_logo_on_black.png
+    - assets/brand/
     - assets/fonts/
     - assets/demo/reels/r1.jpg
     - assets/demo/reels/r2.jpg

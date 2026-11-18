@@ -103,4 +103,41 @@ class StoryService {
       // A failed view must never break the story viewer.
     }
   }
+
+  /// Shares a reel that already lives on the server to the story of [authorId].
+  ///
+  /// It is the `uploadStory` of the web app with the media of the reel: no
+  /// upload happens, the story points at the same file.
+  static Future<bool> shareReel({
+    required String authorId,
+    required String authorName,
+    required String authorAvatar,
+    required String mediaUrl,
+    String mediaType = 'video',
+    String title = '',
+    String storyMode = 'home',
+  }) async {
+    if (!FirebaseService.isReady || mediaUrl.isEmpty) return false;
+    try {
+      final now = DateTime.now();
+      await FirebaseService.firestore.collection('stories').add({
+        'authorId': authorId,
+        'authorName': authorName,
+        'authorAvatar': authorAvatar,
+        'mediaUrl': mediaUrl,
+        'type': mediaType == 'video' ? 'video' : 'image',
+        'text': title.trim(),
+        'storyMode': storyMode,
+        'status': 'active',
+        'createdAt': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(
+          now.add(const Duration(hours: 24)),
+        ),
+        'viewers': <String>[],
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

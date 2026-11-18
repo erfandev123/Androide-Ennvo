@@ -84,6 +84,33 @@ class PostService {
     }
   }
 
+  /// Saves a post for later, or takes the save back.
+  ///
+  /// The saved posts live in `users/{uid}/favorites`, the collection the
+  /// saved screen already reads.
+  static Future<bool> toggleSave({
+    required String postId,
+    required String userId,
+  }) async {
+    if (!FirebaseService.isReady || userId.isEmpty) return false;
+    try {
+      final ref = FirebaseService.firestore
+          .collection('users')
+          .doc(userId)
+          .collection('favorites')
+          .doc(postId);
+      final snapshot = await ref.get();
+      if (snapshot.exists) {
+        await ref.delete();
+        return false;
+      }
+      await ref.set({'createdAt': FieldValue.serverTimestamp()});
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Toggles the like on a post.
   static Future<int> toggleLike({
     required String postId,

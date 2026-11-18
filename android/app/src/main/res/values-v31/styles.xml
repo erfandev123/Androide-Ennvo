@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 12 (API 31) draws its own splash screen. It gets the Ennvo
-         purple and an empty icon: the logo is drawn by the Flutter splash
-         that follows, so the mark is seen exactly once. -->
+    <!-- Android 12 (API 31) draws its own splash screen: black, with an
+         empty icon. The mark is drawn by the Flutter splash that follows,
+         so it is seen exactly once. -->
     <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <item name="android:windowSplashScreenBackground">@color/launch_background</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_blank</item>

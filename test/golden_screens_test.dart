@@ -237,7 +237,7 @@ void main() {
               ShareTarget(id: '4', name: 'Mim'),
               ShareTarget(id: '5', name: 'Nila Rahman'),
             ],
-            onSend: (selected) async {},
+            onSend: (selected, message) async {},
             onRepost: () {},
             onSave: () {},
             onCopyLink: () async {},
@@ -282,14 +282,14 @@ void main() {
       _harness(
         prefs,
         const Scaffold(
-          backgroundColor: kEnnvoPurple,
+          backgroundColor: kEnnvoSplashBlack,
           body: EnnvoSplash(),
         ),
       ),
     );
     await tester.pump(const Duration(milliseconds: 300));
     await _precacheAssets(tester, const [
-      'assets/brand/ennvo_logo_on_black.png',
+      kEnnvoMarkAsset,
     ]);
 
     if (_isCI) return;
@@ -348,7 +348,7 @@ void main() {
               ShareTarget(id: '4', name: 'Mim'),
               ShareTarget(id: '5', name: 'Nila Rahman'),
             ],
-            onSend: (selected) async {},
+            onSend: (selected, message) async {},
             onRepost: () {},
             onSave: () {},
             onCopyLink: () async {},

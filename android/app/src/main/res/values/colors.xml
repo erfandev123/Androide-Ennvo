@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The Ennvo purple. It is the background of the launch screen, so the
-         hand over from the Android window to the Flutter splash is
-         invisible. -->
-    <color name="launch_background">#5B21B6</color>
+    <!-- The app opens on black. The Android window, the Flutter splash and
+         the glare of the screen all use the same black, so the hand over
+         from the launcher is invisible and the mark is seen once. -->
+    <color name="launch_background">#000000</color>
 
-    <!-- The deeper purple that sits behind the adaptive launcher icon, so
-         the white mark of the icon still reads. -->
-    <color name="ic_launcher_background">#5B21B6</color>
+    <!-- The deeper blue of the adaptive launcher icon. It sits behind the
+         white mark, so the icon reads on every launcher. -->
+    <color name="ic_launcher_background">#2AA1FB</color>
 </resources>

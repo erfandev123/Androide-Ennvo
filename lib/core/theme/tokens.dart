@@ -708,6 +708,21 @@ class AppSizes {
   /// under the floating navigation bar.
   static double bottomNavClearance(double safeBottom) =>
       bottomNavTop(safeBottom) + 10;
+
+  /// The distance from the bottom of the screen to the top edge of the bar
+  /// of the skin in use.
+  ///
+  /// The classic bar is flush with the bottom of the screen, so the reels
+  /// timeline can sit directly on top of it; the glass pill floats and
+  /// keeps its gap.
+  static double navTopFor(String style, double safeBottom) =>
+      style == 'classic'
+      ? safeBottom + bottomNavHeightClassic
+      : bottomNavTop(safeBottom);
+
+  /// The room a page keeps at the bottom for the bar of the skin in use.
+  static double navClearanceFor(String style, double safeBottom) =>
+      navTopFor(style, safeBottom) + 10;
   static const double navIconSize = 21;
   static const double navIconSizeClassic = 23;
   static const double createButtonSize = 32;

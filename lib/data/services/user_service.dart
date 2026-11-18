@@ -61,6 +61,10 @@ class UserService {
         .asyncMap(_loadProfiles);
   }
 
+  /// The profiles of a list of uids, in the same order. Missing documents
+  /// are skipped.
+  static Future<List<AppUser>> profiles(List<String> ids) => _profilesOf(ids);
+
   static Future<List<AppUser>> _loadProfiles(QuerySnapshot snapshot) =>
       _profilesOf(snapshot.docs.map((doc) => doc.id).toList());
 

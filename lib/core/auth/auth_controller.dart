@@ -243,6 +243,31 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  /// Turns the private account on or off.
+  ///
+  /// The web app keeps `isPrivate` on the user document, and this does the
+  /// same: the profile is the source of truth for the follow graph, the
+  /// share sheet and the profile itself.
+  Future<void> setPrivate(bool value) async {
+    final current = _user;
+    if (current == null || current.isPrivate == value) return;
+
+    _user = current.copyWith(isPrivate: value);
+    notifyListeners();
+
+    if (!FirebaseService.isReady) return;
+    try {
+      await FirebaseService.firestore
+          .collection('users')
+          .doc(current.uid)
+          .set({'isPrivate': value}, SetOptions(merge: true));
+    } catch (_) {
+      // The document is the truth: a failed write puts the switch back.
+      _user = current;
+      notifyListeners();
+    }
+  }
+
   Future<void> signOut() async {
     try {
       if (FirebaseService.isReady) {

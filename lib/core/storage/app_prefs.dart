@@ -118,6 +118,12 @@ class AppPrefs extends ChangeNotifier {
     await _prefs.setString(kSeenReels, jsonEncode(list));
   }
 
+  /// Forgets every reel the ranking remembered as watched.
+  Future<void> clearSeenReels() async {
+    await _prefs.remove(kSeenReels);
+    notifyListeners();
+  }
+
   // --- Session ----------------------------------------------------------
   String? get lastVisitedPage => _prefs.getString(kLastVisitedPage);
 

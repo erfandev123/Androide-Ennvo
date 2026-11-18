@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/nav/nav_controller.dart';
 import '../../core/nav/page_type.dart';
 import '../../core/providers.dart';
+import '../../core/theme/tokens.dart';
 import '../../shared/widgets/bottom_nav.dart';
 import '../create/camera_page.dart';
 import '../edit_profile/edit_profile_page.dart';
@@ -59,10 +60,14 @@ class _AppShellState extends ConsumerState<AppShell> {
     final showNav =
         _withBottomNav.contains(nav.currentPage) && !keyboardOpen;
 
-    // The buttons of the phone - back, home and the square - must stay
-    // readable on every page. The reels feed is black, so they are light
-    // there, and dark on the pages that are light.
-    _applySystemBars(nav.currentPage == AppPage.home);
+    // The buttons of the phone — back, home and the square — are painted in
+    // the colour of the page that is on screen: black under the reels, the
+    // white of the feed under the feed, and so on. There is never a dark
+    // strip under a light page.
+    final pageColor = _pageColor(nav.currentPage, context);
+    _applySystemBars(pageColor);
+
+    final avatarUrl = ref.watch(authControllerProvider).user?.avatar;
 
     return PopScope(
       canPop: false,
@@ -95,6 +100,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 child: EnnvoBottomNav(
                   currentPage: nav.currentPage,
                   onSelect: _onSelectTab,
+                  avatarUrl: avatarUrl,
                   messageCount: ref.watch(navBadgesProvider).messages,
                   notificationCount: ref
                       .watch(navBadgesProvider)
@@ -120,16 +126,39 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// written when something really changed.
   SystemUiOverlayStyle? _systemBars;
 
+  /// The colour of the page behind the system bar.
+  Color _pageColor(AppPage page, BuildContext context) {
+    final tokens = context.tokens;
+    return switch (page) {
+      AppPage.home => const Color(0xFF000000),
+      AppPage.create => const Color(0xFF000000),
+      AppPage.profile => const Color(0xFFFAF5FF),
+      AppPage.settings => const Color(0xFFF4F8FF),
+      AppPage.messages =>
+        tokens.isDark ? const Color(0xFF000000) : Colors.white,
+      _ => tokens.background,
+    };
+  }
+
   /// Paints the buttons of the phone in the colour of the page.
-  void _applySystemBars(bool darkPage) {
+  void _applySystemBars(Color color) {
+    final isDark = color.computeLuminance() < 0.5;
+
     final style = SystemUiOverlayStyle(
+      // The page runs under both bars, so they are transparent; the
+      // navigation bar takes the colour of the page so the three buttons
+      // sit on the page and not on a black strip.
       statusBarColor: Colors.transparent,
-      systemNavigationBarColor: Colors.transparent,
-      statusBarIconBrightness: darkPage ? Brightness.light : Brightness.dark,
-      statusBarBrightness: darkPage ? Brightness.dark : Brightness.light,
-      systemNavigationBarIconBrightness:
-          darkPage ? Brightness.light : Brightness.dark,
+      systemNavigationBarColor: color,
+      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+      systemNavigationBarIconBrightness: isDark
+          ? Brightness.light
+          : Brightness.dark,
       systemNavigationBarDividerColor: Colors.transparent,
+      // Android 10+ otherwise draws its own translucent scrim over the
+      // navigation bar, which is exactly the black box we do not want.
+      systemNavigationBarContrastEnforced: false,
     );
     if (_systemBars == style) return;
     _systemBars = style;

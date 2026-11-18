@@ -81,15 +81,16 @@ class _EnnvoAppState extends ConsumerState<EnnvoApp> {
 
 /// Shown while the persisted session is being restored.
 ///
-/// The purple and the mark of the Android window, so the hand over from the
-/// launcher is invisible — and the mark is seen exactly once.
+/// Pure black with the white mark — the same screen as the Android window,
+/// so the hand over from the launcher is invisible and the mark is seen
+/// exactly once.
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: kEnnvoPurple,
+      backgroundColor: kEnnvoSplashBlack,
       body: EnnvoSplash(),
     );
   }

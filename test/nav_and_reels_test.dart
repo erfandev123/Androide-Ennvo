@@ -22,6 +22,7 @@ import 'package:ennvo/core/providers.dart';
 import 'package:ennvo/core/storage/app_prefs.dart';
 import 'package:ennvo/core/theme/app_theme.dart';
 import 'package:ennvo/core/theme/tokens.dart';
+import 'package:ennvo/data/models/message.dart';
 import 'package:ennvo/data/models/post.dart';
 import 'package:ennvo/features/reels/models/reel_comment.dart';
 import 'package:ennvo/features/reels/reels_page.dart';
@@ -54,6 +55,21 @@ ProviderContainer _container(AppPrefs prefs) => ProviderContainer(
     prefsProvider.overrideWith((ref) => prefs),
     deviceProfileProvider.overrideWithValue(
       profileForTesting(ramBytes: 8 * 1024 * 1024 * 1024, cores: 8),
+    ),
+    // The inbox is real now: seed a conversation so the chat tests have
+    // somebody to talk to without a backend.
+    conversationsProvider.overrideWith(
+      (ref) => Stream.value(<Conversation>[
+        Conversation(
+          id: 'dm-arif',
+          participantIds: const ['me', 'demo-a'],
+          participantNames: const {'me': 'Me', 'demo-a': 'Arif Hasan'},
+          participantAvatars: const {'me': '', 'demo-a': ''},
+          lastMessage: 'Hello!',
+          unreadCount: const {'me': 0},
+          updatedAt: DateTime.now(),
+        ),
+      ]),
     ),
   ],
 );
@@ -416,7 +432,7 @@ void main() {
             ShareTarget(id: '3', name: 'Rafi Ahmed'),
             ShareTarget(id: '4', name: 'Mim', isOnline: true),
           ],
-          onSend: (selected) async {},
+          onSend: (selected, message) async {},
           onRepost: () {},
           onSave: () {},
           onCopyLink: () async {},

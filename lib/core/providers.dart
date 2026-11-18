@@ -149,6 +149,12 @@ final storiesProvider = StreamProvider<List<Story>>((ref) {
   return StoryService.subscribeStories();
 });
 
+/// The people who follow the signed-in user.
+final followersProvider = StreamProvider<List<AppUser>>((ref) {
+  final uid = ref.watch(authControllerProvider).user?.uid ?? '';
+  return UserService.subscribeFollowers(uid);
+});
+
 /// The activity feed of the signed-in user.
 final notificationsProvider = StreamProvider<List<AppNotification>>((ref) {
   final uid = ref.watch(authControllerProvider).user?.uid ?? '';

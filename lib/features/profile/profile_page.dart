@@ -16,13 +16,16 @@
 // ============================================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/nav/page_type.dart';
 import '../../core/providers.dart';
 import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/post.dart';
+import '../../data/models/user.dart';
 import '../../shared/icons/lucide_icons.dart';
 
 enum ProfileTab { posts, reels, reposts, saved, private }
@@ -76,6 +79,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage>
                     following: user?.followingCount ?? 0,
                     posts: user?.postsCount ?? 0,
                     highlights: user?.highlights ?? const [],
+                    onBack: () =>
+                        ref.read(navControllerProvider).backPage(),
+                    onShare: () => _shareProfile(context, user),
+                    onMenu: () => _openMenu(context),
                   ),
                 ),
                 SliverToBoxAdapter(
@@ -137,6 +144,137 @@ class _ProfilePageState extends ConsumerState<ProfilePage>
       ),
     );
   }
+
+  /// Copies the public address of the profile, the way the web app's
+  /// "Share profile" does.
+  Future<void> _shareProfile(BuildContext context, AppUser? user) async {
+    final handle = user?.username ?? '';
+    final link = handle.isEmpty
+        ? 'https://ennvo.app'
+        : 'https://ennvo.app/u/$handle';
+    await Clipboard.setData(ClipboardData(text: link));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF0F172A),
+        content: Text(
+          handle.isEmpty
+              ? 'Your Ennvo link is copied'
+              : 'ennvo.app/u/$handle is copied',
+          style: const TextStyle(
+            fontFamily: 'PlusJakartaSans',
+            fontSize: 13,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The menu of the top bar: settings, edit profile, sign out.
+  Future<void> _openMenu(BuildContext context) async {
+    final nav = ref.read(navControllerProvider);
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: const Color(0x66000000),
+      builder: (sheetContext) => Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
+          boxShadow: AppShadows.settingsPanel,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              _MenuRow(
+                icon: LucideIcons.settings,
+                label: 'Settings',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  nav.pushPage(AppPage.settings);
+                },
+              ),
+              _MenuRow(
+                icon: LucideIcons.user,
+                label: 'Edit profile',
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  nav.pushPage(AppPage.editProfile);
+                },
+              ),
+              _MenuRow(
+                icon: LucideIcons.logOut,
+                label: 'Sign out',
+                danger: true,
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  ref.read(authControllerProvider).signOut();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One row of the profile menu.
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  final String icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? const Color(0xFFDC2626) : const Color(0xFF0F172A);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+        child: Row(
+          children: [
+            LucideIcon(icon, size: 19, strokeWidth: 2.2, color: color),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: EnnvoText.bodySemi.copyWith(
+                  color: color,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ============================================================================
@@ -154,6 +292,9 @@ class _ProfileHeader extends StatelessWidget {
     required this.following,
     required this.posts,
     required this.highlights,
+    required this.onBack,
+    required this.onShare,
+    required this.onMenu,
   });
 
   final String name;
@@ -166,6 +307,9 @@ class _ProfileHeader extends StatelessWidget {
   final int following;
   final int posts;
   final List<String> highlights;
+  final VoidCallback onBack;
+  final VoidCallback onShare;
+  final VoidCallback onMenu;
 
   @override
   Widget build(BuildContext context) {
@@ -217,7 +361,7 @@ class _ProfileHeader extends StatelessWidget {
                 child: Row(
                   children: [
                     IconButton(
-                      onPressed: () {},
+                      onPressed: onBack,
                       icon: const LucideIcon(
                         LucideIcons.chevronLeft,
                         size: 24,
@@ -228,17 +372,17 @@ class _ProfileHeader extends StatelessWidget {
                     ),
                     const Spacer(),
                     IconButton(
-                      onPressed: () {},
+                      onPressed: onShare,
                       icon: const LucideIcon(
                         LucideIcons.share2,
                         size: 20,
                         strokeWidth: 2.2,
                         color: textPrimary,
                       ),
-                      tooltip: 'Share',
+                      tooltip: 'Share profile',
                     ),
                     IconButton(
-                      onPressed: () {},
+                      onPressed: onMenu,
                       icon: const LucideIcon(
                         LucideIcons.moreHorizontal,
                         size: 20,

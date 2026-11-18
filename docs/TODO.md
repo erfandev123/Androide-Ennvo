@@ -4,7 +4,89 @@ This is the list of everything the native port needs, in the order the work
 makes sense. The **Done** sections are shipped; the **Open** sections are
 what is left.
 
-Last updated after the "reels, splash, camera, uploads" round.
+Last updated after the "icons, navigation, reels, comments, share, feed, messages" round.
+
+---
+
+## 0. This round — the list, in the order it is built
+
+Every item below is a real user request. They are done one by one, each one
+tested before the next starts.
+
+### 0.1 The brand
+- [x] **0.1.1** The app icon, redrawn from the SVG `e` the user supplied:
+      the blue gradient square with the white `e`. High quality at every
+      density (legacy, adaptive, themed, iOS), no blur, no cropping.
+- [x] **0.1.2** The splash: **full black**, only the white `e` (no purple,
+      no tile, no circle behind it), no animation, no delay.
+- [x] **0.1.3** The Android window is black too, so the hand over from the
+      launcher to Flutter never flashes a colour.
+
+### 0.2 The navigation bar
+- [x] **0.2.1** A real **Settings** page with the two navigation designs,
+      *Classic* and *Glass*, selectable and persisted.
+- [x] **0.2.2** The **Classic** bar: full width, no floating gap; the reel
+      timeline sits **on** the bar, with no air between them.
+- [x] **0.2.3** The buttons of the phone (back / home / overview) are
+      painted in the colour of the page on **every** page: white on the
+      light pages, black on the reels. No black box under a white page.
+
+### 0.3 The reels
+- [x] **0.3.1** A tap **stops and starts the reel at once**. The pause is
+      no longer delayed by the double-tap window.
+- [x] **0.3.2** A double tap likes with a heart that is fast and blue, and
+      it can burst again and again as fast as the user taps.
+- [x] **0.3.3** Like, follow, save and the heart of the comments are
+      **blue** everywhere (no red, no pink).
+- [x] **0.3.4** The repost arrows **animate** on a repost.
+- [x] **0.3.5** The sound on / off button gets a clean speaker icon.
+- [x] **0.3.6** The friend pictures above the name are **sharp** (the blur
+      is gone) and they are real: a friend's like or repost, and only for
+      friends.
+
+### 0.4 The comments
+- [x] **0.4.1** The rounded input box is back; the hint text has **no**
+      border or ring of its own.
+- [x] **0.4.2** The send button is a clean blue circle with a real send
+      glyph, and its animation is fixed (no jump, no double tap needed).
+- [x] **0.4.3** The input grows upwards when the text is long.
+- [x] **0.4.4** A like on a comment shows a **blue** heart.
+- [x] **0.4.5** Reply, delete, sticker, photo and voice all work.
+
+### 0.5 The share sheet
+- [x] **0.5.1** A **compact** sheet: the friends on top, then one clean row
+      of actions — download, add story, copy link, message, repost,
+      settings, more, delete.
+- [x] **0.5.2** The settings block is removed from the sheet; only the
+      owner opens it, from its own row.
+- [x] **0.5.3** Picking a friend hides every action, shows the **send**
+      button and the message box beside it.
+
+### 0.6 The feed
+- [x] **0.6.1** The notification icon is gone; the `ennvo` wordmark is the
+      only thing in the middle of the header.
+- [x] **0.6.2** The stories are rounded cards that look like the web app.
+- [x] **0.6.3** A Facebook-style **composer** on top: the user picture, the
+      "What's on your mind?" box, photo and video.
+- [x] **0.6.4** The posts are rounded cards with the author, the big text,
+      the photo or the video, and the real actions.
+- [x] **0.6.5** The feed really loads: posts, photos, videos and text.
+
+### 0.7 The messages
+- [x] **0.7.1** A stories strip on top, with the real stories.
+- [x] **0.7.2** The Activity row sits exactly like a friend row.
+- [x] **0.7.3** The **real friends** of the account, from the follow graph.
+- [x] **0.7.4** A real friend search.
+- [x] **0.7.5** A real chat: the conversation is the `dm` of the two uids,
+      the messages go to Firestore, the header is the friend.
+
+### 0.8 Everything else that was not said
+- [x] **0.8.1** The chat header carries the real friend picture and name,
+      the avatar of the user in the composer, and the messages are really
+      written and read.
+- [x] **0.8.2** Empty states, loading states and the safe areas on every
+      page.
+- [x] **0.8.3** The goldens and the tests follow every change.
 
 ---
 

@@ -20,6 +20,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,10 +33,14 @@ import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/message.dart';
 import '../../data/models/post.dart';
+import '../../data/models/user.dart';
 import '../../data/services/chat_service.dart';
 import '../../data/services/comment_service.dart';
 import '../../data/services/firebase_service.dart';
+import '../../data/services/media_download_service.dart';
+import '../../data/services/post_service.dart';
 import '../../data/services/reels_service.dart';
+import '../../data/services/story_service.dart';
 import '../../data/services/upload_service.dart';
 import '../../shared/icons/lucide_icons.dart';
 import 'demo_reels.dart';
@@ -294,6 +299,14 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
             : ref.watch(friendActivitiesProvider(activePost.id)).value ??
                 const <ReelActivity>[];
 
+    // The skin of the bottom bar decides where the timeline can sit.
+    final navStyle = ref.watch(navStyleProvider);
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+
+    // The signed-in user, for the burst a like or a repost sends above the
+    // name of the author.
+    final viewer = ref.watch(authControllerProvider).user;
+
     return ColoredBox(
       color: Colors.black,
       child: Stack(
@@ -336,6 +349,9 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                   friendActivities: index == _activeIndex
                       ? friendActivities
                       : const <ReelActivity>[],
+                  navStyle: navStyle,
+                  viewerName: viewer?.name ?? '',
+                  viewerAvatar: viewer?.avatar ?? '',
                   onProgress: (value) {
                     // Only the timeline listens to this — the feed itself is
                     // never rebuilt for it.
@@ -423,11 +439,14 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
           // the reel follows the finger.
           if (_paused)
             Positioned(
-              left: 18,
-              right: 18,
-              bottom:
-                  AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
-                  4,
+              left: navStyle == 'classic' ? 0 : 18,
+              right: navStyle == 'classic' ? 0 : 18,
+              // Classic: the bar is flush with the bottom of the screen, so
+              // the timeline is flush on top of it, with no air between the
+              // two. Glass: the pill floats, and the timeline sits above it.
+              bottom: navStyle == 'classic'
+                  ? AppSizes.navTopFor(navStyle, safeBottom) - 7
+                  : AppSizes.navTopFor(navStyle, safeBottom) + 4,
               child: _Timeline(
                 value: _progress,
                 onSeek: (fraction) => _playback.seek(fraction),
@@ -773,18 +792,42 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
       builder: (_) => ReelShareSheet(
         targets: targets,
         isOwner: user?.uid != null && user!.uid == post.authorId,
-        onSend: (selected) async {
-          await _sendReel(post, selected, user?.uid ?? '');
+        hasReposted: _reposted.contains(post.id),
+        onSend: (selected, message) async {
+          await _sendReel(post, selected, user?.uid ?? '', message);
         },
-        onRepost: () {},
-        onSave: () {},
+        onRepost: () {
+          HapticFeedback.lightImpact();
+          setState(() {
+            if (!_reposted.remove(post.id)) _reposted.add(post.id);
+          });
+          if (user != null) {
+            PostService.toggleRepost(
+              postId: post.id,
+              userId: user.uid,
+              currentlyReposted: !_reposted.contains(post.id),
+              currentCount: post.repostsCount,
+            );
+          }
+        },
+        onSave: () {
+          HapticFeedback.lightImpact();
+          setState(() {
+            if (!_saved.remove(post.id)) _saved.add(post.id);
+          });
+        },
         onCopyLink: () async {
           await Clipboard.setData(
             ClipboardData(text: 'https://ennvo.app/reel/${post.id}'),
           );
         },
-        onAddStory: () {},
-        onDownload: () {},
+        onAddStory: () => _shareToStory(post, user),
+        onMessage: () {
+          ref.read(navControllerProvider).setCurrentPage(AppPage.messages);
+        },
+        onDownload: () => _downloadReel(post),
+        onReport: () => _reportReel(post),
+        onDelete: () => _deleteReel(post),
         onSettingsChanged: (settings) async {
           await FirebaseService.firestore
               .collection('posts')
@@ -806,6 +849,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     AppPost post,
     List<ShareTarget> selected,
     String senderId,
+    String message,
   ) async {
     final media = post.media.isNotEmpty ? post.media.first : null;
     for (final target in selected) {
@@ -814,11 +858,94 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
         messageId: 'local-${DateTime.now().microsecondsSinceEpoch}',
         senderId: senderId,
         type: MessageType.reel,
-        content: 'Shared a reel',
+        content: message.isEmpty ? 'Shared a reel' : message,
         mediaUrl: media,
         postId: post.id,
       );
     }
+  }
+
+  /// Saves the reel on the phone, into the Downloads folder.
+  Future<void> _downloadReel(AppPost post) async {
+    final url = post.media.isNotEmpty ? post.media.first : '';
+    if (!url.startsWith('http')) {
+      _toast('This reel is built into the app and needs no download.');
+      return;
+    }
+    final extension = url.contains('.')
+        ? url.substring(url.lastIndexOf('.') + 1).split('?').first
+        : 'mp4';
+    await MediaDownloadService.download(
+      url,
+      fileName: 'ennvo_${post.id}.$extension',
+    );
+  }
+
+  /// Adds the reel to the story of the signed-in user.
+  Future<void> _shareToStory(AppPost post, AppUser? user) async {
+    if (user == null) {
+      _toast('Sign in to add this reel to your story.');
+      return;
+    }
+    final media = post.media.isNotEmpty ? post.media.first : '';
+    if (media.isEmpty) {
+      _toast('This reel has no picture to share.');
+      return;
+    }
+    final ok = await StoryService.shareReel(
+      authorId: user.uid,
+      authorName: user.name,
+      authorAvatar: user.avatar,
+      mediaUrl: media,
+      mediaType: post.type == PostType.reel ? 'video' : 'image',
+      title: post.text,
+    );
+    _toast(ok ? 'Added to your story.' : 'Could not add the reel to your story.');
+  }
+
+  /// Deletes the reel, owner only.
+  Future<void> _deleteReel(AppPost post) async {
+    if (!FirebaseService.isReady) return;
+    try {
+      await FirebaseService.firestore.collection('posts').doc(post.id).delete();
+      _toast('The reel is gone.');
+    } catch (_) {
+      _toast('Could not delete the reel.');
+    }
+  }
+
+  /// Files a report on the reel.
+  Future<void> _reportReel(AppPost post) async {
+    final user = ref.read(authControllerProvider).user;
+    if (FirebaseService.isReady) {
+      try {
+        await FirebaseService.firestore.collection('reports').add({
+          'type': 'reel',
+          'postId': post.id,
+          'authorId': post.authorId,
+          'reporterId': user?.uid ?? '',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {
+        // The report is best effort: the user still gets the confirmation.
+      }
+    }
+    _toast('Thanks — the reel was reported.');
+  }
+
+  void _toast(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF0F172A),
+        duration: const Duration(seconds: 2),
+        content: Text(
+          text,
+          style: const TextStyle(fontFamily: 'PlusJakartaSans', fontSize: 13),
+        ),
+      ),
+    );
   }
 
   /// The people of the share sheet when there is no network.

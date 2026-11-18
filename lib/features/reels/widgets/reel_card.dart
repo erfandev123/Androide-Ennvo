@@ -27,11 +27,11 @@
 
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/theme/motion.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/post.dart';
@@ -41,6 +41,10 @@ import '../../../shared/icons/lucide_icons.dart';
 import '../../../shared/widgets/song_marquee.dart';
 import '../demo_reels.dart';
 import 'reel_video.dart';
+
+/// The blue of the brand, used by every active action of a reel: the like,
+/// the follow, the repost, the save and the hearts.
+const Color kReelBlue = Color(0xFF2AA1FB);
 
 /// A friend whose avatar floats above the name.
 class ReelActivity {
@@ -91,6 +95,9 @@ class ReelCard extends StatefulWidget {
     this.playback,
     this.onPauseChanged,
     this.friendActivities = const [],
+    this.navStyle = 'glass',
+    this.viewerName = '',
+    this.viewerAvatar = '',
   });
 
   final AppPost post;
@@ -119,6 +126,15 @@ class ReelCard extends StatefulWidget {
   /// The real friend likes and reposts of this reel, read from Firestore.
   /// Only people the viewer follows appear here.
   final List<ReelActivity> friendActivities;
+
+  /// The skin of the bottom bar, so the caption and the rail keep clear of
+  /// it — the glass pill floats, the classic bar is flush.
+  final String navStyle;
+
+  /// The picture and the name of the signed-in user, used for the burst
+  /// that a like or a repost sends above the name.
+  final String viewerName;
+  final String viewerAvatar;
 
   final VoidCallback onToggleLike;
   final VoidCallback onToggleSave;
@@ -152,11 +168,14 @@ class _ReelCardState extends State<ReelCard>
   /// The heart that bursts out of a double tap.
   late final AnimationController _heart = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 620),
+    duration: const Duration(milliseconds: 420),
   );
 
   DateTime _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
-  Timer? _tapTimer;
+
+  /// Whether the reel was running before the tap that is still inside the
+  /// double-tap window. A double tap puts it back exactly where it was.
+  bool? _pausedBeforeTap;
 
   static const int _captionThreshold = 60;
 
@@ -165,35 +184,45 @@ class _ReelCardState extends State<ReelCard>
 
   @override
   void dispose() {
-    _tapTimer?.cancel();
     _heart.dispose();
     super.dispose();
   }
 
-  /// A double tap likes the reel and sends a friend's avatar across the
+  /// A double tap likes the reel and sends the viewer's avatar across the
   /// screen; a single tap plays or pauses.
+  ///
+  /// The pause is **instant**: a tap stops the picture on the same frame,
+  /// instead of waiting out the double-tap window. When the second tap of a
+  /// double tap arrives, the pause of the first tap is undone, so liking a
+  /// reel never leaves it stopped.
   void _handleTap(Offset position) {
     final now = DateTime.now();
     final delta = now.difference(_lastTap).inMilliseconds;
     _lastTap = now;
 
-    if (delta < 300) {
-      _tapTimer?.cancel();
+    if (delta < 260) {
       _lastTap = DateTime.fromMillisecondsSinceEpoch(0);
+
+      final restore = _pausedBeforeTap;
+      _pausedBeforeTap = null;
+      if (restore != null && restore != _paused) {
+        setState(() => _paused = restore);
+        widget.onPauseChanged?.call(_paused);
+      }
+
       if (!widget.isLiked) widget.onToggleLike();
       _spawnActivity('like');
-      // The heart comes out at once - it is the reward of the double tap.
+      // The heart comes out at once, and a fast second double tap starts it
+      // again from zero — the burst is never blocked by the one before it.
       _heart.forward(from: 0);
       HapticFeedback.lightImpact();
       return;
     }
 
-    _tapTimer?.cancel();
-    _tapTimer = Timer(const Duration(milliseconds: 280), () {
-      if (!mounted) return;
-      setState(() => _paused = !_paused);
-      widget.onPauseChanged?.call(_paused);
-    });
+    // The first tap of a possible double tap: stop (or start) the reel now.
+    _pausedBeforeTap = _paused;
+    setState(() => _paused = !_paused);
+    widget.onPauseChanged?.call(_paused);
   }
 
   /// The picture is held down on the right: the reel runs at 2x.
@@ -212,12 +241,12 @@ class _ReelCardState extends State<ReelCard>
     widget.playback?.setSpeed(1.0);
   }
 
-  /// Sends a friend's avatar floating above the name.
+  /// Sends a viewer's avatar floating above the name.
   void _spawnActivity(String kind) {
     final activity = ReelActivity(
       id: DateTime.now().microsecondsSinceEpoch,
-      name: widget.post.authorName,
-      avatarUrl: widget.post.authorAvatar,
+      name: widget.viewerName,
+      avatarUrl: widget.viewerAvatar,
       kind: kind,
     );
     setState(() => _activities.add(activity));
@@ -243,6 +272,16 @@ class _ReelCardState extends State<ReelCard>
     final authorName = widget.post.authorName.isEmpty
         ? (widget.post.authorUsername ?? 'ennvo')
         : widget.post.authorName;
+
+    // The author block and the action rail sit above the bar of the skin in
+    // use: the floating glass pill floats 12 px above the bottom, the
+    // classic bar is flush, so the two need different room.
+    final barTop =
+        AppSizes.navTopFor(
+          widget.navStyle,
+          MediaQuery.paddingOf(context).bottom,
+        ) +
+        16;
 
     return Stack(
       fit: StackFit.expand,
@@ -360,7 +399,7 @@ class _ReelCardState extends State<ReelCard>
                       child: const IonIcon(
                         IonIcons.heartFilled,
                         size: 120,
-                        color: Color(0xE6FF2D55),
+                        color: Color(0xE62AA1FB),
                       ),
                     ),
                   ),
@@ -388,12 +427,9 @@ class _ReelCardState extends State<ReelCard>
         Positioned(
           left: 14,
           right: 86,
-          // It sits above the floating navigation bar and its timeline, so
-          // the caption and the handle read as part of the reel rather than
-          // of the chrome.
-          bottom:
-              AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
-              16,
+          // It sits above the bar of the skin in use, so the caption and
+          // the handle read as part of the reel rather than of the chrome.
+          bottom: barTop,
           child: RepaintBoundary(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -522,9 +558,7 @@ class _ReelCardState extends State<ReelCard>
         // --- the action rail -----------------------------------------
         Positioned(
           right: 8,
-          bottom:
-              AppSizes.bottomNavTop(MediaQuery.paddingOf(context).bottom) +
-              16,
+          bottom: barTop,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -532,7 +566,7 @@ class _ReelCardState extends State<ReelCard>
                 icon: IonIcons.heartOutline,
                 filledIcon: IonIcons.heartFilled,
                 filled: widget.isLiked,
-                activeColor: const Color(0xFFFF2D55),
+                activeColor: kReelBlue,
                 label: _format(widget.likesCount),
                 onTap: () {
                   widget.onToggleLike();
@@ -552,8 +586,9 @@ class _ReelCardState extends State<ReelCard>
                 icon: IonIcons.repeatOutline,
                 filledIcon: IonIcons.repeatOutline,
                 filled: widget.isReposted,
-                activeColor: const Color(0xFF22C55E),
+                activeColor: kReelBlue,
                 label: _format(widget.sharesCount),
+                spinOnTap: true,
                 onTap: () {
                   widget.onToggleRepost();
                   if (!widget.isReposted) _spawnActivity('repost');
@@ -565,7 +600,7 @@ class _ReelCardState extends State<ReelCard>
                 icon: IonIcons.bookmarkOutline,
                 filledIcon: IonIcons.bookmarkFilled,
                 filled: widget.isSaved,
-                activeColor: const Color(0xFFFFD700),
+                activeColor: kReelBlue,
                 label: _format(widget.favouritesCount),
                 onTap: widget.onToggleSave,
                 semanticLabel: 'Save',
@@ -593,7 +628,8 @@ class _ReelCardState extends State<ReelCard>
 
         // --- the sound toggle -----------------------------------------
         // It only shows while the reel is stopped: a running reel keeps its
-        // chrome out of the way.
+        // chrome out of the way. A speaker drawn as a clean vector, with a
+        // slash when the reel is silent.
         if (_paused)
           Positioned(
             top: MediaQuery.paddingOf(context).top + 8,
@@ -601,15 +637,25 @@ class _ReelCardState extends State<ReelCard>
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: widget.onToggleMute,
-              child: Container(
-                padding: const EdgeInsets.all(9),
+              child: AnimatedContainer(
+                duration: EnnvoDurations.dropdown,
+                curve: EnnvoCurves.press,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.38),
+                  color: widget.muted
+                      ? const Color(0xCC000000)
+                      : Colors.black.withValues(alpha: 0.38),
                   shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.22),
+                  ),
                 ),
-                child: IonIcon(
-                  widget.muted ? IonIcons.volumeOff : IonIcons.volumeHigh,
-                  size: 21,
+                alignment: Alignment.center,
+                child: LucideIcon(
+                  widget.muted ? LucideIcons.volumeX : LucideIcons.volume2,
+                  size: 19,
+                  strokeWidth: 2.3,
                   color: Colors.white,
                 ),
               ),
@@ -677,30 +723,37 @@ class _ActivityAvatar extends StatelessWidget {
         color: const Color(0xFF1F2937),
       ),
       alignment: Alignment.center,
+      // A sharp picture: the avatar of a friend is not art, it is a face.
       child: ClipOval(
-        child: ImageFiltered(
-          imageFilter: ImageFilter.blur(sigmaX: 1.2, sigmaY: 1.2),
-          child: activity.avatarUrl.isEmpty
-              ? Center(
+        child: activity.avatarUrl.isEmpty
+            ? Center(
+                child: Text(
+                  activity.name.isEmpty
+                      ? '?'
+                      : activity.name.characters.first.toUpperCase(),
+                  style: EnnvoText.tiny.copyWith(color: Colors.white),
+                ),
+              )
+            : Image.network(
+                activity.avatarUrl,
+                width: 34,
+                height: 34,
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.high,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) => Center(
                   child: Text(
                     activity.name.isEmpty
                         ? '?'
                         : activity.name.characters.first.toUpperCase(),
                     style: EnnvoText.tiny.copyWith(color: Colors.white),
                   ),
-                )
-              : Image.network(
-                  activity.avatarUrl,
-                  width: 34,
-                  height: 34,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                 ),
-        ),
+              ),
       ),
     );
 
-    // A green repeat for a repost, a red heart for a like.
+    // A blue repeat for a repost, a blue heart for a like.
     final badge = Positioned(
       right: -2,
       bottom: -2,
@@ -709,9 +762,7 @@ class _ActivityAvatar extends StatelessWidget {
         height: 15,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: activity.kind == 'repost'
-              ? const Color(0xFF22C55E)
-              : const Color(0xFFFF2D55),
+          color: kReelBlue,
           border: Border.all(color: Colors.black, width: 1.2),
         ),
         alignment: Alignment.center,
@@ -815,7 +866,7 @@ class _AuthorBadge extends StatelessWidget {
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [Color(0xFFFFD700), Color(0xFFFE2C55), Color(0xFF8B5CF6)],
+              colors: [Color(0xFF71D2FD), Color(0xFF2AA1FB), Color(0xFF2563EB)],
             ),
           ),
           child: Container(
@@ -858,7 +909,7 @@ class _AuthorBadge extends StatelessWidget {
               height: 24,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: isFollowing ? Colors.white : const Color(0xFFFE2C55),
+                color: isFollowing ? Colors.white : kReelBlue,
                 border: Border.all(color: Colors.black, width: 1.8),
                 boxShadow: const [
                   BoxShadow(color: Color(0x73000000), blurRadius: 8),
@@ -939,11 +990,11 @@ class _FollowChipState extends State<_FollowChip>
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
           decoration: BoxDecoration(
-            color: const Color(0xFFFE2C55),
+            color: kReelBlue,
             borderRadius: BorderRadius.circular(AppRadius.pill),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x59FE2C55),
+                color: Color(0x592AA1FB),
                 blurRadius: 10,
                 offset: Offset(0, 3),
               ),
@@ -972,7 +1023,7 @@ class _FollowChipState extends State<_FollowChip>
 //  `:active` scale, and the native port follows it: only the colour of the
 //  icon changes.
 // ============================================================================
-class _RailButton extends StatelessWidget {
+class _RailButton extends StatefulWidget {
   const _RailButton({
     required this.icon,
     required this.label,
@@ -981,6 +1032,7 @@ class _RailButton extends StatelessWidget {
     this.filledIcon,
     this.filled = false,
     this.activeColor,
+    this.spinOnTap = false,
   });
 
   /// The outline glyph.
@@ -995,31 +1047,74 @@ class _RailButton extends StatelessWidget {
   final bool filled;
   final Color? activeColor;
 
+  /// Whether the glyph turns around itself when it is pressed — the repost
+  /// arrows do, the rest of the rail stays still.
+  final bool spinOnTap;
+
+  @override
+  State<_RailButton> createState() => _RailButtonState();
+}
+
+class _RailButtonState extends State<_RailButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 560),
+  );
+
+  @override
+  void dispose() {
+    _spin.dispose();
+    super.dispose();
+  }
+
+  void _handleTap() {
+    HapticFeedback.lightImpact();
+    if (widget.spinOnTap) _spin.forward(from: 0);
+    widget.onTap();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final color = filled ? (activeColor ?? Colors.white) : Colors.white;
+    final color = widget.filled
+        ? (widget.activeColor ?? Colors.white)
+        : Colors.white;
+
+    // A real Ionicons vector, 32-on-512 stroke, from the web build.
+    Widget glyph = IonIcon(
+      widget.filled && widget.filledIcon != null
+          ? widget.filledIcon!
+          : widget.icon,
+      size: 34,
+      color: color,
+    );
+
+    if (widget.spinOnTap) {
+      glyph = AnimatedBuilder(
+        animation: _spin,
+        builder: (context, child) {
+          // One full turn with a soft landing, so a repost reads as an
+          // action and not as a colour change.
+          final t = Curves.easeOutCubic.transform(_spin.value);
+          return Transform.rotate(angle: t * 2 * math.pi, child: child);
+        },
+        child: glyph,
+      );
+    }
 
     return Semantics(
       button: true,
-      label: semanticLabel,
+      label: widget.semanticLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () {
-          HapticFeedback.lightImpact();
-          onTap();
-        },
+        onTap: _handleTap,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // A real Ionicons vector, 32-on-512 stroke, from the web build.
-            IonIcon(
-              filled && filledIcon != null ? filledIcon! : icon,
-              size: 34,
-              color: color,
-            ),
+            glyph,
             const SizedBox(height: 4),
             Text(
-              label,
+              widget.label,
               style: EnnvoText.tiny.copyWith(
                 color: Colors.white.withValues(alpha: 0.95),
                 fontSize: 12,

@@ -2,6 +2,13 @@
     <!-- The voice notes and the videos of the comment composer. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- Saving a reel to the Downloads folder. Android 10 and newer write
+         there through DownloadManager without a permission; older releases
+         still ask for this one. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- The live camera of the upload page. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

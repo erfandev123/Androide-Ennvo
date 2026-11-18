@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The launch screen of the Ennvo app.
 
-     It carries the Ennvo purple and nothing else. The logo is drawn by the
-     Flutter splash that follows it, so the mark is seen exactly once while
-     the app opens. -->
+     It is pure black and it carries no logo: the mark is drawn by the
+     Flutter splash that follows, on the very same black, so the hand over
+     from the launcher is invisible and the mark is seen exactly once. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:drawable="@color/launch_background" />
 </layer-list>
