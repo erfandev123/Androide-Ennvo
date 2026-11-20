@@ -230,9 +230,24 @@ class Conversation {
       return raw.map((k, v) => MapEntry(k.toString(), v == true));
     }
 
-    final names = Map<String, String>.of(stringMap('participantNames'));
-    final avatars = Map<String, String>.of(stringMap('participantAvatars'));
-    final ids = List<String>.of(parseStringList(data['participantIds']));
+    final names = <String, String>{};
+    stringMap('participantNames').forEach((k, v) {
+      final trimmed = v.trim();
+      if (trimmed.isNotEmpty && trimmed != 'Unknown' && trimmed != 'Someone') {
+        names[k] = trimmed;
+      }
+    });
+    final avatars = <String, String>{};
+    stringMap('participantAvatars').forEach((k, v) {
+      final trimmed = v.trim();
+      if (trimmed.isNotEmpty) {
+        avatars[k] = trimmed;
+      }
+    });
+    final ids = <String>[];
+    for (final pid in parseStringList(data['participantIds'])) {
+      if (pid.isNotEmpty && !ids.contains(pid)) ids.add(pid);
+    }
 
     // Web app conversations may store `{ participants: { uid: { name, avatar } } }`
     final participantsRaw = data['participants'] as Map?;
@@ -242,9 +257,17 @@ class Conversation {
         if (pid.isEmpty) return;
         if (!ids.contains(pid)) ids.add(pid);
         if (rawVal is Map) {
-          final pName = (rawVal['name'] ?? rawVal['displayName'])?.toString();
-          final pAvatar = (rawVal['avatar'] ?? rawVal['photoURL'])?.toString();
-          if ((names[pid] ?? '').isEmpty && pName != null && pName.isNotEmpty) {
+          final pName = (rawVal['name'] ?? rawVal['displayName'])
+              ?.toString()
+              .trim();
+          final pAvatar = (rawVal['avatar'] ?? rawVal['photoURL'])
+              ?.toString()
+              .trim();
+          if ((names[pid] ?? '').isEmpty &&
+              pName != null &&
+              pName.isNotEmpty &&
+              pName != 'Unknown' &&
+              pName != 'Someone') {
             names[pid] = pName;
           }
           if ((avatars[pid] ?? '').isEmpty &&
@@ -277,24 +300,28 @@ class Conversation {
     );
   }
 
+  /// The other participant's id in a 1:1 direct conversation.
+  String? otherParticipantId(String currentUserId) {
+    if (isGroup) return null;
+    return participantIds.where((id) => id != currentUserId).firstOrNull;
+  }
+
   /// The display name of the conversation.
   String displayName(String currentUserId) {
     if (isGroup) return groupName ?? 'Group';
-    final other = participantIds
-        .where((id) => id != currentUserId)
-        .firstOrNull;
-    if (other == null) return 'Unknown';
-    final name = participantNames[other];
-    if (name == null || name.isEmpty) return 'Unknown';
+    final other = otherParticipantId(currentUserId);
+    if (other == null) return 'User';
+    final name = participantNames[other]?.trim();
+    if (name == null || name.isEmpty || name == 'Unknown') {
+      return 'Ennvo User';
+    }
     return name;
   }
 
   /// The avatar of the conversation.
   String displayAvatar(String currentUserId) {
     if (isGroup) return groupAvatar ?? '';
-    final other = participantIds
-        .where((id) => id != currentUserId)
-        .firstOrNull;
+    final other = otherParticipantId(currentUserId);
     if (other == null) return '';
     return participantAvatars[other] ?? '';
   }

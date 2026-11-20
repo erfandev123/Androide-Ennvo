@@ -94,6 +94,7 @@ class ReelCard extends StatefulWidget {
     this.song,
     this.playback,
     this.onPauseChanged,
+    this.onCleanModeChanged,
     this.friendActivities = const [],
     this.navStyle = 'glass',
     this.viewerName = '',
@@ -151,6 +152,9 @@ class ReelCard extends StatefulWidget {
   /// and the sound button.
   final ValueChanged<bool>? onPauseChanged;
 
+  /// Fired when right-side hold toggles 2x clean cinema mode.
+  final ValueChanged<bool>? onCleanModeChanged;
+
   @override
   State<ReelCard> createState() => _ReelCardState();
 }
@@ -164,6 +168,8 @@ class _ReelCardState extends State<ReelCard>
 
   /// The reel runs at 2x while the right side of the picture is held down.
   bool _fastForward = false;
+  bool _holdTriggered = false;
+  Timer? _holdTimer;
 
   /// The heart that bursts out of a double tap.
   late final AnimationController _heart = AnimationController(
@@ -180,10 +186,25 @@ class _ReelCardState extends State<ReelCard>
   static const int _captionThreshold = 60;
 
   /// The share of the width on the right that runs the reel at 2x.
-  static const double _fastZone = 0.62;
+  static const double _fastZone = 0.52;
+
+  @override
+  void didUpdateWidget(covariant ReelCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isActive && oldWidget.isActive) {
+      _holdTimer?.cancel();
+      _holdTimer = null;
+      _holdTriggered = false;
+      if (_fastForward) {
+        _fastForward = false;
+        widget.playback?.setSpeed(1.0);
+      }
+    }
+  }
 
   @override
   void dispose() {
+    _holdTimer?.cancel();
     _heart.dispose();
     super.dispose();
   }
@@ -225,20 +246,31 @@ class _ReelCardState extends State<ReelCard>
     widget.onPauseChanged?.call(_paused);
   }
 
-  /// The picture is held down on the right: the reel runs at 2x.
+  /// The picture is pressed: arm a 200ms hold timer on the right side for 2x.
   void _handlePress(Offset position, double width) {
+    _holdTimer?.cancel();
+    _holdTriggered = false;
     if (width <= 0) return;
     if (position.dx < width * _fastZone) return;
-    if (_fastForward) return;
-    setState(() => _fastForward = true);
-    widget.playback?.setSpeed(2.0);
+
+    _holdTimer = Timer(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      _holdTriggered = true;
+      setState(() => _fastForward = true);
+      widget.playback?.setSpeed(2.0);
+      widget.onCleanModeChanged?.call(true);
+      HapticFeedback.selectionClick();
+    });
   }
 
-  /// The picture is released: the reel runs at its normal speed again.
+  /// The picture is released: restore 1x speed and all overlays.
   void _handleRelease() {
+    _holdTimer?.cancel();
+    _holdTimer = null;
     if (!_fastForward) return;
     setState(() => _fastForward = false);
     widget.playback?.setSpeed(1.0);
+    widget.onCleanModeChanged?.call(false);
   }
 
   /// Sends a viewer's avatar floating above the name.
@@ -296,10 +328,19 @@ class _ReelCardState extends State<ReelCard>
                 constraints.maxWidth,
               ),
               onTapUp: (details) {
-                _handleRelease();
+                if (_holdTriggered) {
+                  _holdTriggered = false;
+                  _handleRelease();
+                  return;
+                }
+                _holdTimer?.cancel();
+                _holdTimer = null;
                 _handleTap(details.localPosition);
               },
-              onTapCancel: _handleRelease,
+              onTapCancel: () {
+                _holdTriggered = false;
+                _handleRelease();
+              },
               child: ReelVideo(
                 url: demo == null ? widget.post.videoUrl : null,
                 assetPath: demo?.videoAsset,
@@ -320,41 +361,45 @@ class _ReelCardState extends State<ReelCard>
         ),
 
         // --- gradients ------------------------------------------------
-        const Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 170,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0x73000000), Color(0x00000000)],
+        if (!_fastForward) ...[
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 170,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x73000000), Color(0x00000000)],
+                ),
               ),
             ),
           ),
-        ),
-        const Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: 360,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.bottomCenter,
-                end: Alignment.topCenter,
-                colors: [Color(0xC7000000), Color(0x40000000), Color(0x00000000)],
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 360,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    Color(0xC7000000),
+                    Color(0x40000000),
+                    Color(0x00000000),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
+        ],
 
         // --- the stopped icon ----------------------------------------
-        // It appears the moment the reel stops: there is no fade, because a
-        // fade is what made the icon feel late.
-        if (_paused)
+        if (_paused && !_fastForward)
           Positioned.fill(
             child: IgnorePointer(
               child: Center(
@@ -409,22 +454,18 @@ class _ReelCardState extends State<ReelCard>
           ),
         ),
 
-        // --- the 2x badge ---------------------------------------------
+        // --- the 2x badge (bottom center in clean cinema mode) --------
         if (_fastForward)
-          const Positioned(
-            top: 0,
+          Positioned(
             left: 0,
             right: 0,
-            child: Center(
-              child: Padding(
-                padding: EdgeInsets.only(top: 96),
-                child: _SpeedBadge(speed: '2x'),
-              ),
-            ),
+            bottom: MediaQuery.paddingOf(context).bottom + 24,
+            child: const Center(child: _SpeedBadge(speed: '2x')),
           ),
 
         // --- the author block -----------------------------------------
-        Positioned(
+        if (!_fastForward)
+          Positioned(
           left: 14,
           right: 86,
           // It sits above the bar of the skin in use, so the caption and
@@ -556,9 +597,10 @@ class _ReelCardState extends State<ReelCard>
         ),
 
         // --- the action rail -----------------------------------------
-        Positioned(
-          right: 8,
-          bottom: barTop,
+        if (!_fastForward)
+          Positioned(
+            right: 8,
+            bottom: barTop,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -627,10 +669,7 @@ class _ReelCardState extends State<ReelCard>
         ),
 
         // --- the sound toggle -----------------------------------------
-        // It only shows while the reel is stopped: a running reel keeps its
-        // chrome out of the way. A speaker drawn as a clean vector, with a
-        // slash when the reel is silent.
-        if (_paused)
+        if (_paused && !_fastForward)
           Positioned(
             top: MediaQuery.paddingOf(context).top + 8,
             left: 8,
@@ -876,24 +915,40 @@ class _AuthorBadge extends StatelessWidget {
             ),
             padding: const EdgeInsets.all(1.6),
             child: Container(
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFF222222),
-                image: avatarUrl.isEmpty
-                    ? null
-                    : DecorationImage(
-                        image: NetworkImage(avatarUrl),
+                color: Color(0xFF222222),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ClipOval(
+                child: avatarUrl.isEmpty
+                    ? Center(
+                        child: Text(
+                          name.isEmpty
+                              ? '?'
+                              : name.characters.first.toUpperCase(),
+                          style: EnnvoText.bodySemi.copyWith(
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
+                    : Image.network(
+                        avatarUrl,
+                        width: 44,
+                        height: 44,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Center(
+                          child: Text(
+                            name.isEmpty
+                                ? '?'
+                                : name.characters.first.toUpperCase(),
+                            style: EnnvoText.bodySemi.copyWith(
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
                       ),
               ),
-              child: avatarUrl.isEmpty
-                  ? Center(
-                      child: Text(
-                        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-                        style: EnnvoText.bodySemi.copyWith(color: Colors.white),
-                      ),
-                    )
-                  : null,
             ),
           ),
         ),
@@ -1197,28 +1252,40 @@ class _VinylDiscState extends State<_VinylDisc>
         child: RotationTransition(
           turns: _controller,
           child: Container(
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF111111),
-              image: widget.avatarUrl.isEmpty
-                  ? null
-                  : DecorationImage(
-                      image: NetworkImage(widget.avatarUrl),
-                      fit: BoxFit.cover,
-                    ),
+              color: Color(0xFF111111),
             ),
-            child: widget.avatarUrl.isEmpty
-                ? Center(
-                    child: Transform.rotate(
-                      angle: -math.pi / 4,
-                      child: const Icon(
-                        Icons.music_note_rounded,
-                        size: 14,
-                        color: Colors.white70,
+            clipBehavior: Clip.antiAlias,
+            child: ClipOval(
+              child: widget.avatarUrl.isEmpty
+                  ? Center(
+                      child: Transform.rotate(
+                        angle: -math.pi / 4,
+                        child: const Icon(
+                          Icons.music_note_rounded,
+                          size: 14,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    )
+                  : Image.network(
+                      widget.avatarUrl,
+                      width: 36,
+                      height: 36,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Center(
+                        child: Transform.rotate(
+                          angle: -math.pi / 4,
+                          child: const Icon(
+                            Icons.music_note_rounded,
+                            size: 14,
+                            color: Colors.white70,
+                          ),
+                        ),
                       ),
                     ),
-                  )
-                : null,
+            ),
           ),
         ),
       ),

@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:record/record.dart';
 
 class VoiceRecorder {
@@ -59,6 +60,7 @@ class VoiceRecorder {
   ///
   /// It returns false when the microphone is not available.
   Future<bool> start() async {
+    if (kIsWeb) return false;
     if (_recording) return true;
 
     final device = _device;
@@ -127,7 +129,7 @@ class VoiceRecorder {
 
   /// Removes the file of a note that was not sent.
   static Future<void> remove(String? path) async {
-    if (path == null || path.isEmpty) return;
+    if (kIsWeb || path == null || path.isEmpty) return;
     try {
       final file = File(path);
       if (await file.exists()) await file.delete();

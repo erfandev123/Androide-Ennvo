@@ -437,31 +437,32 @@ class _ProfileAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fallback = Center(
+      child: EnnvoNavIconView(
+        EnnvoNavIcon.profile,
+        color: activeColor,
+        size: size * 0.62,
+      ),
+    );
     final avatar = Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         border: Border.all(color: activeColor, width: isActive ? 2 : 0),
-        image: url == null || url!.isEmpty
-            ? null
-            : DecorationImage(
-                image: NetworkImage(url!),
-                fit: BoxFit.cover,
-              ),
-        color: url == null || url!.isEmpty
-            ? activeColor.withValues(alpha: 0.25)
-            : null,
+        color: activeColor.withValues(alpha: 0.25),
       ),
       child: url == null || url!.isEmpty
-          ? Center(
-              child: EnnvoNavIconView(
-                EnnvoNavIcon.profile,
-                color: activeColor,
-                size: size * 0.62,
+          ? fallback
+          : ClipOval(
+              child: Image.network(
+                url!,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback,
               ),
-            )
-          : null,
+            ),
     );
 
     return AnimatedScale(

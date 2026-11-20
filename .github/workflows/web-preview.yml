@@ -1,0 +1,69 @@
+name: Web Preview
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: web-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_web:
+    name: Build Flutter Web Preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+
+      - name: Cache pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool/package_config.json
+          key: pub-web-${{ runner.os }}-${{ hashFiles('pubspec.yaml') }}
+          restore-keys: pub-web-${{ runner.os }}-
+
+      - name: Fetch dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test --reporter expanded
+
+      - name: Build Flutter Web
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          CLOUDFLARE_R2_PUBLIC_DOMAIN: ${{ secrets.CLOUDFLARE_R2_PUBLIC_DOMAIN }}
+        run: |
+          flutter build web \
+            --release \
+            --dart-define=CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
+            --dart-define=CLOUDFLARE_R2_ACCESS_KEY_ID="$CLOUDFLARE_R2_ACCESS_KEY_ID" \
+            --dart-define=CLOUDFLARE_R2_SECRET_ACCESS_KEY="$CLOUDFLARE_R2_SECRET_ACCESS_KEY" \
+            --dart-define=CLOUDFLARE_R2_BUCKET_NAME="$CLOUDFLARE_R2_BUCKET_NAME" \
+            --dart-define=CLOUDFLARE_R2_PUBLIC_DOMAIN="$CLOUDFLARE_R2_PUBLIC_DOMAIN"
+
+      - name: Upload Web Preview Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ennvo-web-preview
+          path: build/web/
+          if-no-files-found: error
+          retention-days: 7

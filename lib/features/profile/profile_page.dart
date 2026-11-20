@@ -679,24 +679,31 @@ class _ProfileAvatar extends StatelessWidget {
             shape: BoxShape.circle,
             color: Colors.white,
             border: Border.all(color: const Color(0x14000000), width: 1),
-            image: url.isEmpty
-                ? null
-                : DecorationImage(
-                    image: ResizeImage(NetworkImage(url), width: 180),
-                    fit: BoxFit.cover,
-                  ),
           ),
+          alignment: Alignment.center,
           child: url.isEmpty
-              ? Center(
-                  child: Text(
-                    name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-                    style: EnnvoText.pageHero.copyWith(
-                      color: const Color(0xFF6B7280),
-                      fontSize: 32,
-                    ),
+              ? Text(
+                  name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+                  style: EnnvoText.pageHero.copyWith(
+                    color: const Color(0xFF6B7280),
+                    fontSize: 32,
                   ),
                 )
-              : null,
+              : ClipOval(
+                  child: Image.network(
+                    url,
+                    width: 84,
+                    height: 84,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Text(
+                      name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+                      style: EnnvoText.pageHero.copyWith(
+                        color: const Color(0xFF6B7280),
+                        fontSize: 32,
+                      ),
+                    ),
+                  ),
+                ),
         ),
         if (isVerified)
           const Positioned(

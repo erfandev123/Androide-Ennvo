@@ -12,8 +12,9 @@
 //  follows the bytes.
 // ============================================================================
 
-import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -54,7 +55,9 @@ class _UploadPageState extends ConsumerState<UploadPage> {
   final TextEditingController _tags = TextEditingController();
 
   VideoPlayerController? _player;
-  File? _cover;
+  XFile? _cover;
+  Uint8List? _coverBytes;
+  Uint8List? _imageBytes;
 
   bool _uploading = false;
   double _progress = 0;
@@ -64,14 +67,18 @@ class _UploadPageState extends ConsumerState<UploadPage> {
   String _privacy = 'public';
   bool _comments = true;
   bool _remix = true;
-  bool _hideLikes = false;
-  bool _saveToDevice = false;
+  final bool _hideLikes = false;
+  final bool _saveToDevice = false;
 
   @override
   void initState() {
     super.initState();
     _title.text = widget.caption;
-    if (widget.isVideo) _openVideo();
+    if (widget.isVideo) {
+      _openVideo();
+    } else {
+      _loadImageBytes();
+    }
   }
 
   @override
@@ -82,8 +89,19 @@ class _UploadPageState extends ConsumerState<UploadPage> {
     super.dispose();
   }
 
+  Future<void> _loadImageBytes() async {
+    try {
+      final bytes = await XFile(widget.filePath).readAsBytes();
+      if (!mounted) return;
+      setState(() => _imageBytes = bytes);
+    } catch (_) {}
+  }
+
   Future<void> _openVideo() async {
-    final controller = VideoPlayerController.file(File(widget.filePath));
+    final uri = kIsWeb
+        ? Uri.parse(widget.filePath)
+        : Uri.file(widget.filePath);
+    final controller = VideoPlayerController.networkUrl(uri);
     try {
       await controller.initialize();
       await controller.setLooping(true);
@@ -118,6 +136,7 @@ class _UploadPageState extends ConsumerState<UploadPage> {
             bottom: bottom + 300,
             child: _CoverPreview(
               path: _cover?.path ?? widget.filePath,
+              imageBytes: _coverBytes ?? _imageBytes,
               isVideo: widget.isVideo && _cover == null,
               player: _player,
               onPickCover: _pickCover,
@@ -417,7 +436,12 @@ class _UploadPageState extends ConsumerState<UploadPage> {
         imageQuality: 90,
       );
       if (picked == null) return;
-      setState(() => _cover = File(picked.path));
+      final bytes = await picked.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _cover = picked;
+        _coverBytes = bytes;
+      });
     } catch (_) {
       // Nothing picked.
     }
@@ -436,9 +460,10 @@ class _UploadPageState extends ConsumerState<UploadPage> {
 
     String? url;
     try {
-      final uploaded = await UploadService.uploadFile(
-        file: File(widget.filePath),
+      final uploaded = await UploadService.uploadXFile(
+        file: XFile(widget.filePath),
         folder: widget.isReel ? 'reels' : 'posts',
+        contentType: widget.isVideo ? 'video/mp4' : null,
         onProgress: (sent, total) {
           if (!mounted || total <= 0) return;
           setState(() => _progress = (sent / total).clamp(0.0, 1.0));
@@ -508,12 +533,14 @@ class _UploadPageState extends ConsumerState<UploadPage> {
 class _CoverPreview extends StatelessWidget {
   const _CoverPreview({
     required this.path,
+    required this.imageBytes,
     required this.isVideo,
     required this.player,
     required this.onPickCover,
   });
 
   final String path;
+  final Uint8List? imageBytes;
   final bool isVideo;
   final VideoPlayerController? player;
   final VoidCallback onPickCover;
@@ -532,13 +559,23 @@ class _CoverPreview extends StatelessWidget {
                     child: VideoPlayer(player!),
                   ),
                 )
-              : Image.file(
-                  File(path),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const ColoredBox(
-                    color: Color(0xFF0B0B0E),
-                  ),
-                ),
+              : (imageBytes != null
+                    ? Image.memory(
+                        imageBytes!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const ColoredBox(
+                          color: Color(0xFF0B0B0E),
+                        ),
+                      )
+                    : (kIsWeb && path.isNotEmpty
+                          ? Image.network(
+                              path,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const ColoredBox(
+                                color: Color(0xFF0B0B0E),
+                              ),
+                            )
+                          : const ColoredBox(color: Color(0xFF0B0B0E)))),
         ),
         Positioned(
           right: 14,

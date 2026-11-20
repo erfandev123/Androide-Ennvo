@@ -21,7 +21,6 @@
 // ============================================================================
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -107,7 +106,7 @@ class ReelCommentsSheet extends StatefulWidget {
   onVoice;
 
   /// A photo is attached.
-  final Future<void> Function(File file, ReelComment? replyTo)? onPhoto;
+  final Future<void> Function(XFile file, ReelComment? replyTo)? onPhoto;
 
   /// A sticker is picked.
   final void Function(String sticker)? onStickerSelected;
@@ -205,16 +204,14 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
     await widget.onPhoto?.call(picked, _replyingTo);
   }
 
-  Future<File?> _pickImage() async {
+  Future<XFile?> _pickImage() async {
     try {
       final picker = ImagePicker();
-      final photo = await picker.pickImage(
+      return await picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 1600,
         imageQuality: 88,
       );
-      if (photo == null) return null;
-      return File(photo.path);
     } catch (_) {
       return null;
     }
@@ -628,21 +625,18 @@ class _Composer extends StatelessWidget {
           const SizedBox(width: 9),
 
           // --- the rounded input box --------------------------------
-          // One real box, the way the web app draws it: a soft grey pill
-          // that holds the text and the small buttons. The hint carries no
-          // border and no ring of its own — the box is the only shape.
           Expanded(
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 140),
               curve: Curves.easeOut,
-              constraints: const BoxConstraints(minHeight: 40),
-              padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
+              constraints: const BoxConstraints(minHeight: 44),
+              padding: const EdgeInsets.fromLTRB(16, 2, 8, 2),
               decoration: BoxDecoration(
                 color: focusNode.hasFocus ? t.surface : t.surfaceAlt,
-                borderRadius: BorderRadius.circular(22),
+                borderRadius: BorderRadius.circular(24),
                 border: Border.all(
                   color: focusNode.hasFocus ? _kCommentBlue : t.border,
-                  width: focusNode.hasFocus ? 1.5 : 1.0,
+                  width: focusNode.hasFocus ? 1.6 : 1.0,
                 ),
               ),
               child: Row(
@@ -663,16 +657,16 @@ class _Composer extends StatelessWidget {
                         fontSize: 14.5,
                         height: 1.35,
                       ),
-                      cursorColor: t.accent,
+                      cursorColor: _kCommentBlue,
                       decoration: InputDecoration(
                         isDense: true,
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(
-                          vertical: 10,
+                          vertical: 11,
                         ),
-                        hintText: 'Add a comment',
+                        hintText: 'Write a comment...',
                         hintStyle: EnnvoText.body.copyWith(
                           color: t.textTertiary,
                           fontSize: 14.5,
@@ -681,14 +675,12 @@ class _Composer extends StatelessWidget {
                     ),
                   ),
 
-                  // The sticker, the photo and the voice buttons go away
-                  // while the keyboard is up: the separate box carries the
-                  // input and the send button and nothing else.
+                  // Collapse attachment icons when focused/typing for generous input width.
                   AnimatedSize(
                     duration: const Duration(milliseconds: 140),
                     curve: Curves.easeOut,
                     alignment: Alignment.centerRight,
-                    child: expanded
+                    child: (expanded || focusNode.hasFocus || canSend)
                         ? const SizedBox.shrink()
                         : Row(
                             mainAxisSize: MainAxisSize.min,
@@ -777,24 +769,27 @@ class _UserAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-
-    return Container(
+    final fallback = Container(
       width: 38,
       height: 38,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: t.surfaceAlt,
-        image: url.isEmpty
-            ? null
-            : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
-      ),
+      color: t.surfaceAlt,
       alignment: Alignment.center,
-      child: url.isEmpty
-          ? Text(
-              name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-              style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
-            )
-          : null,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+      ),
+    );
+    if (url.isEmpty) return ClipOval(child: fallback);
+    return ClipOval(
+      child: SizedBox(
+        width: 38,
+        height: 38,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      ),
     );
   }
 }
@@ -1276,27 +1271,28 @@ class _CommentAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
     final name = comment.authorName;
-
-    return Container(
+    final fallback = Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: t.surfaceAlt,
-        image: comment.authorAvatar.isEmpty
-            ? null
-            : DecorationImage(
-                image: NetworkImage(comment.authorAvatar),
-                fit: BoxFit.cover,
-              ),
-      ),
+      color: t.surfaceAlt,
       alignment: Alignment.center,
-      child: comment.authorAvatar.isEmpty
-          ? Text(
-              name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-              style: EnnvoText.tiny.copyWith(color: t.textSecondary),
-            )
-          : null,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: EnnvoText.tiny.copyWith(color: t.textSecondary),
+      ),
+    );
+
+    if (comment.authorAvatar.isEmpty) return ClipOval(child: fallback);
+    return ClipOval(
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Image.network(
+          comment.authorAvatar,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      ),
     );
   }
 }

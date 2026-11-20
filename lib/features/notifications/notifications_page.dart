@@ -1,22 +1,8 @@
 // ============================================================================
 //  ENNVO — NOTIFICATIONS SCREEN
 //
-//  The activity screen, ported from `src/pages/Notifications.tsx`.
-//
-//  The signature interaction is the iOS card-stack accordion: a stack of
-//  cards that sits collapsed behind the top card and unrolls into a full
-//  list when the banner is tapped. The geometry is taken straight from the
-//  web app's CSS:
-///
-///    .act-stack-deck.is-collapsed .act-card-item:nth-child(1)
-///      { margin-top: 0;    transform: translate3d(0, 0, 0)  scale(1);    z-index: 5; opacity: 1 }
-///    …nth-child(2)  { margin-top: -54px; translate3d(0, 14px, 0) scale(.95); z-index: 4; opacity: .88 }
-///    …nth-child(3)  { margin-top: -54px; translate3d(0, 27px, 0) scale(.89); z-index: 3; opacity: .65 }
-///    …nth-child(n+4){ margin-top: -54px; translate3d(0, 38px, 0) scale(.83); z-index: 2; opacity: 0 }
-///    .act-stack-deck.is-expanded .act-card-item
-///      { margin-top: 10px; transform: translate3d(0, 0, 0) scale(1); opacity: 1 }
-//
-//  with a 0.52s `var(--ios-spring)` transition and a 0.03s stagger.
+//  Activity & Followers screen with glass capsule navigation, PageView swipe,
+//  clean expandable earlier-activity deck, type badges, and follower search.
 // ============================================================================
 
 import 'package:flutter/material.dart';
@@ -37,21 +23,20 @@ import '../messages/messages_page.dart' show ChatScreen;
 class NotificationsPage extends ConsumerStatefulWidget {
   const NotificationsPage({super.key, this.modal = false});
 
-  /// True when the page is opened from the inbox: the back button goes
-  /// home instead of pushing a new route.
+  /// True when the page is opened from the inbox: the back button pops
+  /// back to the inbox instead of switching shell page.
   final bool modal;
 
   @override
   ConsumerState<NotificationsPage> createState() => _NotificationsPageState();
 }
 
-class _NotificationsPageState extends ConsumerState<NotificationsPage>
-    with SingleTickerProviderStateMixin {
+class _NotificationsPageState extends ConsumerState<NotificationsPage> {
   /// 0 = Activity, 1 = Followers.
   int _activeTab = 0;
 
   bool _activityExpanded = false;
-  bool _followersExpanded = false;
+  late final PageController _pageController = PageController(initialPage: 0);
 
   @override
   void initState() {
@@ -62,6 +47,24 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
         NotificationService.markAllRead(uid);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _switchTab(int index) {
+    if (_activeTab == index && _pageController.hasClients) return;
+    setState(() => _activeTab = index);
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: EnnvoDurations.dropdownAlt,
+        curve: EnnvoCurves.iosSpring,
+      );
+    }
   }
 
   @override
@@ -111,11 +114,14 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
                         ref.read(navControllerProvider).backPage();
                       }
                     },
-                    child: LucideIcon(
-                      LucideIcons.chevronLeft,
-                      size: 24,
-                      strokeWidth: 2.6,
-                      color: act.textPrimary,
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: LucideIcon(
+                        LucideIcons.chevronLeft,
+                        size: 24,
+                        strokeWidth: 2.6,
+                        color: act.textPrimary,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -133,13 +139,23 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
                       final prefs = ref.read(prefsProvider);
                       prefs.setDarkTheme(!prefs.isDarkTheme);
                     },
-                    child: LucideIcon(
-                      ref.watch(themeModeProvider) == ThemeMode.dark
-                          ? LucideIcons.sun
-                          : LucideIcons.moon,
-                      size: 18,
-                      strokeWidth: 2.2,
-                      color: act.textPrimary,
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: act.cardBackground,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: act.cardBorder),
+                      ),
+                      alignment: Alignment.center,
+                      child: LucideIcon(
+                        ref.watch(themeModeProvider) == ThemeMode.dark
+                            ? LucideIcons.sun
+                            : LucideIcons.moon,
+                        size: 17,
+                        strokeWidth: 2.2,
+                        color: act.textPrimary,
+                      ),
                     ),
                   ),
                 ],
@@ -147,40 +163,27 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
             ),
           ),
 
-          // --- the two panes --------------------------------------------
+          // --- the two swipeable panes ----------------------------------
           Positioned.fill(
-            top: top + 56,
-            child: AnimatedBuilder(
-              animation: _tabController,
-              builder: (context, _) {
-                return Transform.translate(
-                  // The web app slides a 200% wide track by half its width.
-                  offset: Offset(-_activeTab * 0.5 * _trackWidth(context), 0),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: _trackWidth(context),
-                        child: _ActivityPane(
-                          notifications: notifications,
-                          expanded: _activityExpanded,
-                          onToggleExpand: () => setState(
-                            () => _activityExpanded = !_activityExpanded,
-                          ),
-                        ),
-                      ),
-                      SizedBox(
-                        width: _trackWidth(context),
-                        child: _FollowersPane(
-                          expanded: _followersExpanded,
-                          onToggleExpand: () => setState(
-                            () => _followersExpanded = !_followersExpanded,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
+            top: top + 58,
+            child: PageView(
+              controller: _pageController,
+              physics: const BouncingScrollPhysics(),
+              onPageChanged: (index) {
+                if (_activeTab != index) {
+                  setState(() => _activeTab = index);
+                }
               },
+              children: [
+                _ActivityPane(
+                  notifications: notifications,
+                  expanded: _activityExpanded,
+                  onToggleExpand: () => setState(
+                    () => _activityExpanded = !_activityExpanded,
+                  ),
+                ),
+                const _FollowersPane(),
+              ],
             ),
           ),
 
@@ -192,14 +195,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
             child: Center(
               child: _GlassCapsuleNav(
                 activeIndex: _activeTab,
-                onChanged: (index) {
-                  _tabController.animateTo(
-                    1.0,
-                    duration: EnnvoDurations.dropdownAlt,
-                    curve: EnnvoCurves.iosSpring,
-                  );
-                  setState(() => _activeTab = index);
-                },
+                onChanged: _switchTab,
               ),
             ),
           ),
@@ -207,26 +203,12 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
       ),
     );
   }
-
-  double _trackWidth(BuildContext context) => MediaQuery.sizeOf(context).width;
-
-  late final AnimationController _tabController = AnimationController(
-    vsync: this,
-    duration: EnnvoDurations.dropdownAlt,
-    value: 0,
-  );
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
 }
 
 // ============================================================================
 //  Activity pane
 // ============================================================================
-class _ActivityPane extends StatelessWidget {
+class _ActivityPane extends ConsumerWidget {
   const _ActivityPane({
     required this.notifications,
     required this.expanded,
@@ -238,8 +220,9 @@ class _ActivityPane extends StatelessWidget {
   final VoidCallback onToggleExpand;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final act = context.act;
+    final me = ref.watch(authControllerProvider).user;
 
     return notifications.when(
       loading: () => const Center(
@@ -253,30 +236,43 @@ class _ActivityPane extends StatelessWidget {
       data: (items) {
         if (items.isEmpty) return _EmptyActivity(act: act);
 
-        // The web app shows the two most recent activities on their own,
-        // then collapses the rest into the accordion stack.
         final top = items.take(2).toList();
         final rest = items.skip(2).toList();
 
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
           children: [
-            Text(
-              'RECENT ACTIVITY',
-              style: EnnvoText.overline.copyWith(color: act.textSecondary),
+            Row(
+              children: [
+                Text(
+                  'RECENT ACTIVITY',
+                  style: EnnvoText.overline.copyWith(color: act.textSecondary),
+                ),
+                const Spacer(),
+                if (items.any((n) => !n.isRead) && me != null)
+                  GestureDetector(
+                    onTap: () => NotificationService.markAllRead(me.uid),
+                    child: Text(
+                      'Mark all read',
+                      style: EnnvoText.caption.copyWith(
+                        color: const Color(0xFF0095F6),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 10),
             for (final item in top)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _ActivityCard(notification: item),
+                child: _ActivityCardContainer(notification: item),
               ),
             if (rest.isNotEmpty)
               _StackDeck(
                 items: rest,
                 expanded: expanded,
                 onToggle: onToggleExpand,
-                builder: (item, index) => _ActivityCard(notification: item),
               ),
           ],
         );
@@ -286,16 +282,27 @@ class _ActivityPane extends StatelessWidget {
 }
 
 // ============================================================================
-//  Followers pane
+//  Followers pane with live search
 // ============================================================================
-class _FollowersPane extends ConsumerWidget {
-  const _FollowersPane({required this.expanded, required this.onToggleExpand});
-
-  final bool expanded;
-  final VoidCallback onToggleExpand;
+class _FollowersPane extends ConsumerStatefulWidget {
+  const _FollowersPane();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_FollowersPane> createState() => _FollowersPaneState();
+}
+
+class _FollowersPaneState extends ConsumerState<_FollowersPane> {
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final act = context.act;
     final me = ref.watch(authControllerProvider).user;
     final followersAsync = ref.watch(followersProvider);
@@ -314,111 +321,216 @@ class _FollowersPane extends ConsumerWidget {
       error: (_, __) => _empty(act),
       data: (followers) {
         if (followers.isEmpty) return _empty(act);
-        return ListView.separated(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-          itemCount: followers.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (context, index) {
-            final person = followers[index];
-            final isFollowing = followingIds.contains(person.uid);
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: act.cardBackground,
-                borderRadius: BorderRadius.circular(AppRadius.xxl),
-                border: Border.all(color: act.cardBorder),
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 21,
-                    backgroundColor: const Color(0xFFE0F2FE),
-                    backgroundImage: person.avatar.isEmpty
-                        ? null
-                        : ResizeImage(NetworkImage(person.avatar), width: 120),
-                    child: person.avatar.isEmpty
-                        ? Text(
-                            person.name.isEmpty
-                                ? '?'
-                                : person.name.characters.first.toUpperCase(),
-                            style: EnnvoText.bodySemi
-                                .copyWith(color: const Color(0xFF0369A1)),
-                          )
-                        : null,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          person.name.isEmpty ? 'User' : person.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: EnnvoText.bodySemi.copyWith(
-                            color: act.textPrimary,
+
+        final q = _query.trim().toLowerCase();
+        final filtered = q.isEmpty
+            ? followers
+            : followers
+                .where(
+                  (u) =>
+                      u.name.toLowerCase().contains(q) ||
+                      u.username.toLowerCase().contains(q),
+                )
+                .toList();
+
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Container(
+                height: 42,
+                decoration: BoxDecoration(
+                  color: act.cardBackground,
+                  borderRadius: BorderRadius.circular(21),
+                  border: Border.all(color: act.cardBorder),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.search_rounded,
+                      size: 18,
+                      color: act.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _search,
+                        onChanged: (v) => setState(() => _query = v),
+                        style: EnnvoText.body.copyWith(
+                          color: act.textPrimary,
+                          fontSize: 14,
+                        ),
+                        decoration: InputDecoration(
+                          isCollapsed: true,
+                          border: InputBorder.none,
+                          hintText: 'Search followers...',
+                          hintStyle: EnnvoText.body.copyWith(
+                            color: act.textSecondary,
                             fontSize: 14,
                           ),
                         ),
-                        if (person.username.isNotEmpty)
-                          Text(
-                            '@${person.username}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: EnnvoText.caption.copyWith(
-                              color: act.textSecondary,
-                              fontSize: 12,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  if (me != null) ...[
-                    TextButton(
-                      onPressed: () {
-                        if (isFollowing) {
-                          UserService.unfollow(
-                            myId: me.uid,
-                            otherId: person.uid,
-                          );
-                        } else {
-                          UserService.follow(me: me, other: person);
-                        }
-                      },
-                      child: Text(isFollowing ? 'Following' : 'Follow back'),
-                    ),
-                    IconButton(
-                      tooltip: 'Message',
-                      onPressed: () async {
-                        final id = await ChatService.createConversation(
-                          currentUserId: me.uid,
-                          otherUserId: person.uid,
-                          otherUserName: person.name,
-                          otherUserAvatar: person.avatar,
-                          currentUserName: me.name,
-                          currentUserAvatar: me.avatar,
-                        );
-                        if (!context.mounted) return;
-                        await Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => ChatScreen(
-                              conversationId: id,
-                              title: person.name.isEmpty ? 'Chat' : person.name,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 18,
-                        color: act.textPrimary,
                       ),
                     ),
+                    if (_query.isNotEmpty)
+                      GestureDetector(
+                        onTap: () {
+                          _search.clear();
+                          setState(() => _query = '');
+                        },
+                        child: Icon(
+                          Icons.close_rounded,
+                          size: 17,
+                          color: act.textSecondary,
+                        ),
+                      ),
                   ],
-                ],
+                ),
               ),
-            );
-          },
+            ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No matching followers',
+                        style: EnnvoText.body.copyWith(
+                          color: act.textSecondary,
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final person = filtered[index];
+                        final isFollowing = followingIds.contains(person.uid);
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          decoration: BoxDecoration(
+                            color: act.cardBackground,
+                            borderRadius: BorderRadius.circular(AppRadius.xxl),
+                            border: Border.all(color: act.cardBorder),
+                          ),
+                          child: Row(
+                            children: [
+                              _ActAvatar(
+                                url: person.avatar,
+                                name: person.name,
+                                size: 42,
+                                act: act,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      person.name.isEmpty
+                                          ? 'Ennvo User'
+                                          : person.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: EnnvoText.bodySemi.copyWith(
+                                        color: act.textPrimary,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    if (person.username.isNotEmpty)
+                                      Text(
+                                        '@${person.username}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: EnnvoText.caption.copyWith(
+                                          color: act.textSecondary,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              if (me != null) ...[
+                                TextButton(
+                                  onPressed: () {
+                                    if (isFollowing) {
+                                      UserService.unfollow(
+                                        myId: me.uid,
+                                        otherId: person.uid,
+                                      );
+                                    } else {
+                                      UserService.follow(me: me, other: person);
+                                    }
+                                  },
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: isFollowing
+                                        ? Colors.transparent
+                                        : const Color(0xFF0095F6),
+                                    foregroundColor: isFollowing
+                                        ? act.textSecondary
+                                        : Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 7,
+                                    ),
+                                    minimumSize: Size.zero,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(18),
+                                      side: isFollowing
+                                          ? BorderSide(color: act.cardBorder)
+                                          : BorderSide.none,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    isFollowing ? 'Following' : 'Follow back',
+                                    style: EnnvoText.caption.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  tooltip: 'Message',
+                                  onPressed: () async {
+                                    final id =
+                                        await ChatService.createConversation(
+                                      currentUserId: me.uid,
+                                      otherUserId: person.uid,
+                                      otherUserName: person.name,
+                                      otherUserAvatar: person.avatar,
+                                      currentUserName: me.name,
+                                      currentUserAvatar: me.avatar,
+                                    );
+                                    if (!context.mounted) return;
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => ChatScreen(
+                                          conversationId: id,
+                                          title: person.name.isEmpty
+                                              ? 'Chat'
+                                              : person.name,
+                                          avatarUrl: person.avatar,
+                                          otherUserId: person.uid,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  icon: Icon(
+                                    Icons.chat_bubble_outline_rounded,
+                                    size: 18,
+                                    color: act.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         );
       },
     );
@@ -457,34 +569,27 @@ class _FollowersPane extends ConsumerWidget {
 }
 
 // ============================================================================
-//  The card-stack accordion
+//  Expandable Earlier Activity Deck (zero text overlap)
 // ============================================================================
 class _StackDeck extends StatelessWidget {
   const _StackDeck({
     required this.items,
     required this.expanded,
     required this.onToggle,
-    required this.builder,
   });
 
   final List<AppNotification> items;
   final bool expanded;
   final VoidCallback onToggle;
-  final Widget Function(AppNotification item, int index) builder;
-
-  /// The collapsed offsets, matching the CSS exactly.
-  static const List<double> _collapsedOffsets = [0, 14, 27, 38];
-  static const List<double> _collapsedScales = [1, 0.95, 0.89, 0.83];
-  static const List<double> _collapsedOpacity = [1, 0.88, 0.65, 0];
 
   @override
   Widget build(BuildContext context) {
     final act = context.act;
+    final hiddenCount = items.length - 1;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // --- the banner handle ----------------------------------------
         GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: onToggle,
@@ -496,7 +601,7 @@ class _StackDeck extends StatelessWidget {
                   width: 40,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: act.textSecondary.withValues(alpha: 0.6),
+                    color: act.textSecondary.withValues(alpha: 0.45),
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
@@ -504,19 +609,27 @@ class _StackDeck extends StatelessWidget {
                 Row(
                   children: [
                     Text(
-                      'EARLIER',
+                      'EARLIER (${items.length})',
                       style: EnnvoText.overline.copyWith(
                         color: act.textSecondary,
                       ),
                     ),
                     const Spacer(),
+                    Text(
+                      expanded ? 'Collapse' : 'Show all',
+                      style: EnnvoText.caption.copyWith(
+                        color: act.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
                     AnimatedRotation(
                       turns: expanded ? 0.5 : 0,
-                      duration: const Duration(milliseconds: 400),
+                      duration: const Duration(milliseconds: 320),
                       curve: EnnvoCurves.iosSpring,
                       child: LucideIcon(
                         LucideIcons.chevronDown,
-                        size: 18,
+                        size: 17,
                         strokeWidth: 2.2,
                         color: act.textSecondary,
                       ),
@@ -527,89 +640,129 @@ class _StackDeck extends StatelessWidget {
             ),
           ),
         ),
-
-        // --- the deck --------------------------------------------------
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            for (var i = items.length - 1; i >= 0; i--)
-              _StackCard(
-                key: ValueKey(items[i].hashCode),
-                item: items[i],
-                index: i,
-                expanded: expanded,
-                builder: builder,
-              ),
-          ],
+        AnimatedCrossFade(
+          duration: const Duration(milliseconds: 280),
+          firstCurve: Curves.easeOutCubic,
+          secondCurve: Curves.easeOutCubic,
+          sizeCurve: Curves.easeOutCubic,
+          crossFadeState:
+              expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+          firstChild: Column(
+            children: [
+              _ActivityCardContainer(notification: items.first),
+              if (hiddenCount > 0)
+                GestureDetector(
+                  onTap: onToggle,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      color: act.cardBackground.withValues(alpha: 0.72),
+                      borderRadius: const BorderRadius.vertical(
+                        bottom: Radius.circular(AppRadius.xl),
+                      ),
+                      border: Border(
+                        left: BorderSide(color: act.cardBorder),
+                        right: BorderSide(color: act.cardBorder),
+                        bottom: BorderSide(color: act.cardBorder),
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'View $hiddenCount earlier ${hiddenCount == 1 ? 'notification' : 'notifications'}',
+                      style: EnnvoText.caption.copyWith(
+                        color: act.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          secondChild: Column(
+            children: [
+              for (final item in items)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _ActivityCardContainer(notification: item),
+                ),
+            ],
+          ),
         ),
-        SizedBox(height: expanded ? 0 : 60),
       ],
     );
   }
 }
 
-class _StackCard extends StatelessWidget {
-  const _StackCard({
-    super.key,
-    required this.item,
-    required this.index,
-    required this.expanded,
-    required this.builder,
-  });
+class _ActivityCardContainer extends ConsumerWidget {
+  const _ActivityCardContainer({required this.notification});
 
-  final AppNotification item;
-  final int index;
-  final bool expanded;
-  final Widget Function(AppNotification item, int index) builder;
+  final AppNotification notification;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final act = context.act;
+    final me = ref.watch(authControllerProvider).user;
 
-    // The CSS `:nth-child(n+4)` rule hides everything past the third card.
-    final depth = index.clamp(0, 3);
+    final fetched = notification.actorId.isNotEmpty &&
+            (notification.actorName.isEmpty ||
+                notification.actorAvatar.isEmpty)
+        ? ref.watch(userProfileProvider(notification.actorId)).value
+        : null;
 
-    final offset = expanded ? 0.0 : _StackDeck._collapsedOffsets[depth];
-    final scale = expanded ? 1.0 : _StackDeck._collapsedScales[depth];
-    final opacity = expanded
-        ? 1.0
-        : (index >= 3
-              ? 0.0
-              : _StackDeck._collapsedOpacity[depth]);
+    final displayName = notification.actorName.isNotEmpty
+        ? notification.actorName
+        : (fetched?.name.isNotEmpty == true ? fetched!.name : 'Ennvo User');
+    final displayAvatar = notification.actorAvatar.isNotEmpty
+        ? notification.actorAvatar
+        : (fetched?.avatar ?? '');
 
-    // The 0.03s stagger.
-    final delay = Duration(milliseconds: 30 * index);
-
-    return AnimatedSlide(
-      offset: Offset(0, expanded ? 0 : offset / 100),
-      duration: EnnvoDurations.dropdown + delay,
-      curve: EnnvoCurves.iosSpring,
-      child: AnimatedScale(
-        scale: scale,
-        duration: EnnvoDurations.dropdown + delay,
-        curve: EnnvoCurves.iosSpring,
-        child: AnimatedOpacity(
-          opacity: opacity,
-          duration: const Duration(milliseconds: 350),
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Container(
-              decoration: BoxDecoration(
-                color: act.cardBackground,
-                borderRadius: BorderRadius.circular(AppRadius.xxl),
-                border: Border.all(color: act.cardBorder),
-                boxShadow: [
-                  BoxShadow(
-                    color: act.cardShine.withValues(alpha: 0.4),
-                    blurRadius: 1,
-                    offset: const Offset(0, 1),
+    return GestureDetector(
+      onTap: me == null || notification.actorId.isEmpty
+          ? null
+          : () async {
+              final convId = await ChatService.createConversation(
+                currentUserId: me.uid,
+                otherUserId: notification.actorId,
+                otherUserName: displayName,
+                otherUserAvatar: displayAvatar,
+                currentUserName: me.name,
+                currentUserAvatar: me.avatar,
+              );
+              if (!context.mounted) return;
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ChatScreen(
+                    conversationId: convId,
+                    title: displayName,
+                    avatarUrl: displayAvatar,
+                    otherUserId: notification.actorId,
                   ),
-                ],
-              ),
-              padding: const EdgeInsets.all(14),
-              child: builder(item, index),
-            ),
+                ),
+              );
+            },
+      child: Container(
+        decoration: BoxDecoration(
+          color: act.cardBackground,
+          borderRadius: BorderRadius.circular(AppRadius.xxl),
+          border: Border.all(
+            color: notification.isRead
+                ? act.cardBorder
+                : const Color(0xFF0095F6).withValues(alpha: 0.45),
           ),
+          boxShadow: [
+            BoxShadow(
+              color: act.cardShine.withValues(alpha: 0.35),
+              blurRadius: 1,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(14),
+        child: _ActivityCard(
+          notification: notification,
+          displayName: displayName,
+          displayAvatar: displayAvatar,
         ),
       ),
     );
@@ -617,43 +770,52 @@ class _StackCard extends StatelessWidget {
 }
 
 // ============================================================================
-//  One activity card
+//  One activity card with type badge & Web-safe image rendering
 // ============================================================================
 class _ActivityCard extends StatelessWidget {
-  const _ActivityCard({required this.notification});
+  const _ActivityCard({
+    required this.notification,
+    required this.displayName,
+    required this.displayAvatar,
+  });
 
   final AppNotification notification;
+  final String displayName;
+  final String displayAvatar;
 
   @override
   Widget build(BuildContext context) {
     final act = context.act;
+    final badge = _badgeStyle(notification.type);
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: act.cardBackground,
-            image: notification.actorAvatar.isEmpty
-                ? null
-                : DecorationImage(
-                    image: NetworkImage(notification.actorAvatar),
-                    fit: BoxFit.cover,
-                  ),
-          ),
-          child: notification.actorAvatar.isEmpty
-              ? Center(
-                  child: Text(
-                    notification.actorName.isEmpty
-                        ? '?'
-                        : notification.actorName.characters.first.toUpperCase(),
-                    style: EnnvoText.bodySemi.copyWith(color: act.textSecondary),
-                  ),
-                )
-              : null,
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            _ActAvatar(
+              url: displayAvatar,
+              name: displayName,
+              size: 42,
+              act: act,
+            ),
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Container(
+                width: 18,
+                height: 18,
+                decoration: BoxDecoration(
+                  color: badge.color,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: act.background, width: 1.8),
+                ),
+                alignment: Alignment.center,
+                child: Icon(badge.icon, size: 10, color: Colors.white),
+              ),
+            ),
+          ],
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -662,7 +824,7 @@ class _ActivityCard extends StatelessWidget {
             children: [
               Text.rich(
                 TextSpan(
-                  text: notification.actorName,
+                  text: displayName,
                   style: EnnvoText.bodySemi.copyWith(
                     color: act.textPrimary,
                     fontSize: 13.5,
@@ -680,32 +842,75 @@ class _ActivityCard extends StatelessWidget {
               ),
               if (notification.createdAt != null) ...[
                 const SizedBox(height: 3),
-                Text(
-                  _relativeTime(notification.createdAt!),
-                  style: EnnvoText.tiny.copyWith(
-                    color: act.textSecondary,
-                    fontSize: 11,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      _relativeTime(notification.createdAt!),
+                      style: EnnvoText.tiny.copyWith(
+                        color: act.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                    if (!notification.isRead) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF0095F6),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ],
           ),
         ),
-        if (notification.postMedia != null && notification.postMedia!.isNotEmpty)
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
+        if (notification.postMedia != null &&
+            notification.postMedia!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 10),
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(AppRadius.md),
-              image: DecorationImage(
-                image: NetworkImage(notification.postMedia!),
+              child: Image.network(
+                notification.postMedia!,
+                width: 42,
+                height: 42,
                 fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 42,
+                  height: 42,
+                  color: act.cardBackground,
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.image_outlined,
+                    size: 18,
+                    color: act.textSecondary,
+                  ),
+                ),
               ),
             ),
           ),
       ],
     );
   }
+
+  static _BadgeStyle _badgeStyle(NotificationType type) => switch (type) {
+    NotificationType.like || NotificationType.commentLike =>
+      const _BadgeStyle(Icons.favorite_rounded, Color(0xFFFE2C55)),
+    NotificationType.comment || NotificationType.reply =>
+      const _BadgeStyle(Icons.mode_comment_rounded, Color(0xFF0095F6)),
+    NotificationType.follow =>
+      const _BadgeStyle(Icons.person_add_rounded, Color(0xFF8B5CF6)),
+    NotificationType.repost =>
+      const _BadgeStyle(Icons.repeat_rounded, Color(0xFF10B981)),
+    NotificationType.favorite =>
+      const _BadgeStyle(Icons.bookmark_rounded, Color(0xFFF59E0B)),
+    NotificationType.mention =>
+      const _BadgeStyle(Icons.alternate_email_rounded, Color(0xFF6366F1)),
+  };
 
   static String _relativeTime(DateTime time) {
     final delta = DateTime.now().difference(time);
@@ -714,6 +919,55 @@ class _ActivityCard extends StatelessWidget {
     if (delta.inHours < 24) return '${delta.inHours}h';
     if (delta.inDays < 7) return '${delta.inDays}d';
     return '${delta.inDays ~/ 7}w';
+  }
+}
+
+class _BadgeStyle {
+  const _BadgeStyle(this.icon, this.color);
+  final IconData icon;
+  final Color color;
+}
+
+class _ActAvatar extends StatelessWidget {
+  const _ActAvatar({
+    required this.url,
+    required this.name,
+    required this.size,
+    required this.act,
+  });
+
+  final String url;
+  final String name;
+  final double size;
+  final ActTokens act;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
+    final fallback = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: act.cardBackground,
+        border: Border.all(color: act.cardBorder),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: EnnvoText.bodySemi.copyWith(color: act.textSecondary),
+      ),
+    );
+    if (url.isEmpty) return fallback;
+    return ClipOval(
+      child: Image.network(
+        url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
+    );
   }
 }
 
@@ -793,14 +1047,13 @@ class _GlassCapsuleNav extends StatelessWidget {
 
             return Stack(
               children: [
-                // --- the sliding capsule --------------------------------
                 AnimatedPositioned(
                   duration: const Duration(milliseconds: 420),
                   curve: EnnvoCurves.iosBounce,
                   left: itemWidth * activeIndex,
                   top: 0,
                   bottom: 0,
-                  width: itemWidth - 5,
+                  width: itemWidth,
                   child: Container(
                     decoration: BoxDecoration(
                       color: act.pillActiveBackground,
@@ -815,7 +1068,6 @@ class _GlassCapsuleNav extends StatelessWidget {
                     ),
                   ),
                 ),
-                // --- the two buttons ------------------------------------
                 Row(
                   children: [
                     _CapsuleButton(

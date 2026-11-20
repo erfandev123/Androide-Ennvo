@@ -5,7 +5,7 @@
 //  multiline bio, and link, synced back into AuthController.
 // ============================================================================
 
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -33,7 +33,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   late final TextEditingController _bio;
   late final TextEditingController _link;
 
-  File? _pickedAvatar;
+  XFile? _pickedAvatar;
+  Uint8List? _pickedAvatarBytes;
   bool _saving = false;
 
   @override
@@ -63,7 +64,12 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         imageQuality: 85,
       );
       if (photo == null || !mounted) return;
-      setState(() => _pickedAvatar = File(photo.path));
+      final bytes = await photo.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _pickedAvatar = photo;
+        _pickedAvatarBytes = bytes;
+      });
     } catch (_) {}
   }
 
@@ -78,7 +84,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       String? uploadedAvatarUrl;
       if (_pickedAvatar != null) {
         try {
-          final uploaded = await UploadService.uploadFile(
+          final uploaded = await UploadService.uploadXFile(
             file: _pickedAvatar!,
             folder: 'avatars',
           );
@@ -141,12 +147,11 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     final user = ref.watch(authControllerProvider).user;
     final avatarUrl = user?.avatar ?? '';
 
-    ImageProvider? avatarImage;
-    if (_pickedAvatar != null) {
-      avatarImage = FileImage(_pickedAvatar!);
-    } else if (avatarUrl.isNotEmpty) {
-      avatarImage = ResizeImage(NetworkImage(avatarUrl), width: 180);
-    }
+    final fallbackAvatar = Icon(
+      Icons.person_outline_rounded,
+      size: 40,
+      color: t.textTertiary,
+    );
 
     return Scaffold(
       backgroundColor: t.background,
@@ -204,20 +209,26 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: t.surfaceAlt,
-                            image: avatarImage == null
-                                ? null
-                                : DecorationImage(
-                                    image: avatarImage,
-                                    fit: BoxFit.cover,
-                                  ),
                           ),
-                          child: avatarImage == null
-                              ? Icon(
-                                  Icons.person_outline_rounded,
-                                  size: 40,
-                                  color: t.textTertiary,
-                                )
-                              : null,
+                          child: ClipOval(
+                            child: _pickedAvatarBytes != null
+                                ? Image.memory(
+                                    _pickedAvatarBytes!,
+                                    width: 92,
+                                    height: 92,
+                                    fit: BoxFit.cover,
+                                  )
+                                : (avatarUrl.isNotEmpty
+                                      ? Image.network(
+                                          avatarUrl,
+                                          width: 92,
+                                          height: 92,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) =>
+                                              Center(child: fallbackAvatar),
+                                        )
+                                      : Center(child: fallbackAvatar)),
+                          ),
                         ),
                         Positioned(
                           right: -2,

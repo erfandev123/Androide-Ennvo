@@ -114,22 +114,30 @@ class _ChatBubbleState extends State<ChatBubble> {
             SizedBox(
               width: 28,
               child: widget.isLastInGroup && widget.showAvatar
-                  ? CircleAvatar(
-                      radius: 14,
-                      backgroundColor: const Color(0xFFE0F2FE),
-                      backgroundImage: widget.avatarUrl.isEmpty
-                          ? null
-                          : ResizeImage(
-                              NetworkImage(widget.avatarUrl),
-                              width: 96,
-                            ),
-                      child: widget.avatarUrl.isEmpty
-                          ? const Icon(
-                              Icons.person,
-                              size: 14,
-                              color: Color(0xFF0369A1),
-                            )
-                          : null,
+                  ? ClipOval(
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        color: const Color(0xFFE0F2FE),
+                        alignment: Alignment.center,
+                        child: widget.avatarUrl.isEmpty
+                            ? const Icon(
+                                Icons.person,
+                                size: 14,
+                                color: Color(0xFF0369A1),
+                              )
+                            : Image.network(
+                                widget.avatarUrl,
+                                width: 28,
+                                height: 28,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.person,
+                                  size: 14,
+                                  color: Color(0xFF0369A1),
+                                ),
+                              ),
+                      ),
                     )
                   : null,
             ),

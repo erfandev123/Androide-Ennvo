@@ -555,21 +555,40 @@ class _SearchResults extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  CircleAvatar(
-                    radius: 21,
-                    backgroundColor: t.surfaceAlt,
-                    backgroundImage: user.avatar.isEmpty
-                        ? null
-                        : ResizeImage(NetworkImage(user.avatar), width: 120),
+                  ClipOval(
                     child: user.avatar.isEmpty
-                        ? Text(
-                            user.name.isEmpty
-                                ? '?'
-                                : user.name.characters.first.toUpperCase(),
-                            style: EnnvoText.bodySemi
-                                .copyWith(color: t.textSecondary),
+                        ? Container(
+                            width: 42,
+                            height: 42,
+                            color: t.surfaceAlt,
+                            alignment: Alignment.center,
+                            child: Text(
+                              user.name.isEmpty
+                                  ? '?'
+                                  : user.name.characters.first.toUpperCase(),
+                              style: EnnvoText.bodySemi
+                                  .copyWith(color: t.textSecondary),
+                            ),
                           )
-                        : null,
+                        : Image.network(
+                            user.avatar,
+                            width: 42,
+                            height: 42,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 42,
+                              height: 42,
+                              color: t.surfaceAlt,
+                              alignment: Alignment.center,
+                              child: Text(
+                                user.name.isEmpty
+                                    ? '?'
+                                    : user.name.characters.first.toUpperCase(),
+                                style: EnnvoText.bodySemi
+                                    .copyWith(color: t.textSecondary),
+                              ),
+                            ),
+                          ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(

@@ -209,3 +209,15 @@ final firestoreProvider = Provider<FirebaseFirestore?>((ref) {
   if (!FirebaseService.isReady) return null;
   return FirebaseService.firestore;
 });
+
+/// True while holding the right half of a reel (2x speed + clean cinema mode).
+final reelsCleanModeProvider = StateProvider<bool>((ref) => false);
+
+/// Fetches and caches a single user's profile document from `/users/{uid}`.
+final userProfileProvider =
+    FutureProvider.family<AppUser?, String>((ref, uid) async {
+      if (uid.isEmpty || uid == 'me') return null;
+      final list = await UserService.profiles([uid]);
+      return list.isEmpty ? null : list.first;
+    });
+

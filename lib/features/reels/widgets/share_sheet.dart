@@ -1003,13 +1003,6 @@ class _FriendTile extends StatelessWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: t.surfaceAlt,
-                        image: target.avatarUrl.isEmpty
-                            ? null
-                            : DecorationImage(
-                                image: NetworkImage(target.avatarUrl),
-                                fit: BoxFit.cover,
-                                filterQuality: FilterQuality.medium,
-                              ),
                       ),
                       alignment: Alignment.center,
                       child: target.avatarUrl.isEmpty
@@ -1022,7 +1015,24 @@ class _FriendTile extends StatelessWidget {
                                 fontSize: 18,
                               ),
                             )
-                          : null,
+                          : ClipOval(
+                              child: Image.network(
+                                target.avatarUrl,
+                                width: 48,
+                                height: 48,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Text(
+                                  target.name.isEmpty
+                                      ? '?'
+                                      : target.name.characters.first
+                                          .toUpperCase(),
+                                  style: EnnvoText.bodySemi.copyWith(
+                                    color: t.textSecondary,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                              ),
+                            ),
                     ),
                   ),
                   if (isSelected)

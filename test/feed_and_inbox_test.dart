@@ -17,9 +17,13 @@ import 'package:ennvo/data/models/message.dart';
 import 'package:ennvo/data/models/notification.dart';
 import 'package:ennvo/data/models/post.dart';
 import 'package:ennvo/data/models/user.dart';
+import 'package:ennvo/data/services/chat_service.dart';
 import 'package:ennvo/data/services/post_service.dart';
 import 'package:ennvo/data/services/story_service.dart';
+import 'package:ennvo/features/feed/widgets/post_card.dart';
 import 'package:ennvo/features/messages/messages_page.dart';
+import 'package:ennvo/features/notifications/notifications_page.dart';
+import 'package:ennvo/features/reels/widgets/reel_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -204,6 +208,142 @@ void main() {
     expect(conv.unreadFor('me'), 3);
   });
 
+  test('ChatService.deduplicateConversations merges duplicate DMs for same peer', () {
+    final now = DateTime.utc(2026, 6, 1, 12, 0);
+    final older = Conversation(
+      id: 'me_u-arif',
+      participantIds: const ['me', 'u-arif'],
+      participantNames: const {'me': 'Me', 'u-arif': 'Arif Hasan'},
+      participantAvatars: const {'me': '', 'u-arif': 'https://cdn.ennvo.app/arif.jpg'},
+      lastMessage: 'First ping',
+      unreadCount: const {'me': 1},
+      updatedAt: now.subtract(const Duration(minutes: 10)),
+    );
+    final newerIncomplete = Conversation(
+      id: 'u-arif_me',
+      participantIds: const ['u-arif', 'me'],
+      participantNames: const {'me': 'Me', 'u-arif': 'Unknown'},
+      participantAvatars: const {'me': '', 'u-arif': ''},
+      lastMessage: 'Latest ping',
+      unreadCount: const {'me': 3},
+      updatedAt: now,
+    );
+
+    final merged = ChatService.deduplicateConversations(
+      [older, newerIncomplete],
+      'me',
+    );
+    expect(merged.length, 1);
+    expect(merged.first.lastMessage, 'Latest ping');
+    expect(merged.first.displayName('me'), 'Arif Hasan');
+    expect(merged.first.displayAvatar('me'), 'https://cdn.ennvo.app/arif.jpg');
+    expect(merged.first.unreadFor('me'), 3);
+  });
+
+  testWidgets('PostCard renders big text card, location/tags, and 5 actions including Save',
+      (tester) async {
+    var savedTapped = false;
+    final post = AppPost.fromMap({
+      'authorId': 'u-1',
+      'authorName': 'Erfan',
+      'text': 'Ennvo mobile experience looks clean!',
+      'type': 'text',
+      'background': '#0EA5E9',
+      'location': 'Dhaka, Bangladesh',
+      'taggedUsers': ['Tania', 'Arif'],
+      'likesCount': 12,
+      'commentsCount': 4,
+      'favoritesCount': 3,
+      'repostsCount': 2,
+    }, fallbackId: 'p-big-text');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: EnnvoTheme.light(),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: PostCard(
+              post: post,
+              isLiked: false,
+              isReposted: false,
+              likesCount: 12,
+              isSaved: false,
+              favoritesCount: 3,
+              onToggleSave: () => savedTapped = true,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Dhaka, Bangladesh'), findsOneWidget);
+    expect(find.textContaining('with Tania, Arif'), findsOneWidget);
+    expect(find.byTooltip('Favorite'), findsOneWidget);
+    await tester.tap(find.byTooltip('Favorite'));
+    await tester.pump();
+    expect(savedTapped, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ReelCard right-side hold enables clean mode and shows 2x badge',
+      (tester) async {
+    final cleanEvents = <bool>[];
+    final post = AppPost.fromMap({
+      'authorId': 'u-1',
+      'authorName': 'Creator',
+      'text': 'Fast forward test reel',
+      'type': 'reel',
+      'media': const <String>[],
+    }, fallbackId: 'r-test');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: EnnvoTheme.dark(),
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 844,
+            child: ReelCard(
+              post: post,
+              isActive: false,
+              isNear: false,
+              isLiked: false,
+              isSaved: false,
+              isReposted: false,
+              isFollowing: false,
+              likesCount: 10,
+              commentsCount: 2,
+              favouritesCount: 1,
+              sharesCount: 0,
+              muted: true,
+              onToggleLike: () {},
+              onToggleSave: () {},
+              onToggleRepost: () {},
+              onToggleFollow: () {},
+              onToggleMute: () {},
+              onOpenComments: () {},
+              onOpenShare: () {},
+              onCleanModeChanged: cleanEvents.add,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // Press down in the right 55% zone of the ReelCard
+    final gesture = await tester.startGesture(const Offset(320, 420));
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(cleanEvents, contains(true));
+    expect(find.text('2x'), findsOneWidget);
+
+    await gesture.up();
+    await tester.pump();
+    expect(cleanEvents.last, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final dark in [false, true]) {
     testWidgets(
       'MessagesPage renders Stories at top and Activity directly below (${dark ? "dark" : "light"})',
@@ -251,6 +391,46 @@ void main() {
           lessThan(messagesDy),
           reason: 'Activity row must sit above the conversations list',
         );
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'NotificationsPage renders Activity & Followers cleanly (${dark ? "dark" : "light"})',
+      (tester) async {
+        final prefs = await _buildPrefs(dark: dark);
+        final container = _inboxContainer(prefs);
+
+        tester.view.physicalSize = _phone;
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.reset);
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: EnnvoTheme.light(),
+              darkTheme: EnnvoTheme.dark(),
+              themeMode: dark ? ThemeMode.dark : ThemeMode.light,
+              home: const NotificationsPage(),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+
+        expect(find.text('Activity'), findsWidgets);
+        expect(find.text('Followers'), findsOneWidget);
+        expect(
+          find.textContaining('liked your post', findRichText: true),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.text('Followers').last);
+        await tester.pumpAndSettle();
+        expect(find.text('No new followers yet'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );

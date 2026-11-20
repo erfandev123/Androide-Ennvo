@@ -1,12 +1,15 @@
 // ============================================================================
 //  ENNVO — CREATE SCREEN
 //
-//  Ported from `src/pages/Create.tsx`: caption field, gallery picker,
-//  big-text background picker, music/location/tag options, and functional
-//  advanced settings sheet.
+//  Facebook-inspired post composer adapted for mobile & web:
+//    • Author header with interactive Audience/Privacy selector pill
+//    • Spacious auto-growing "What's on your mind?" composer
+//    • Rounded (22px) Big Text gradient card + swatch selector strip
+//    • Rounded media preview (Photo or Video, Web-safe via XFile bytes)
+//    • Quick sheets for Music/Song, Location, Tag Friends, and Settings
 // ============================================================================
 
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,20 +18,22 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../../data/models/user.dart';
 import '../../data/services/post_service.dart';
 import '../../data/services/upload_service.dart';
 import '../../shared/icons/lucide_icons.dart';
 import '../../shared/widgets/buttons.dart';
-import '../../shared/widgets/inputs.dart';
 
 class CreatePage extends ConsumerStatefulWidget {
   const CreatePage({
     super.key,
     this.mediaFile,
+    this.isVideo = false,
     this.isReel = false,
   });
 
-  final File? mediaFile;
+  final XFile? mediaFile;
+  final bool isVideo;
   final bool isReel;
 
   @override
@@ -38,30 +43,73 @@ class CreatePage extends ConsumerStatefulWidget {
 class _CreatePageState extends ConsumerState<CreatePage> {
   final TextEditingController _caption = TextEditingController();
 
-  File? _mediaFile;
+  XFile? _mediaFile;
+  Uint8List? _mediaBytes;
+  bool _isVideo = false;
   String _background = 'none';
-  final Color _customColor = const Color(0xFF2563EB);
+  Color _customColor = const Color(0xFF2563EB);
   String? _musicTitle;
   String? _locationLabel;
+  final List<String> _taggedFriends = <String>[];
 
   bool _uploading = false;
   double _progress = 0;
   bool _published = false;
 
   bool _commentsDisabled = false;
-  final String _privacy = 'public';
+  String _privacy = 'public';
   bool _hideLikes = false;
   bool _allowRemix = true;
   bool _highQuality = true;
   bool _saveToDevice = false;
 
+  static const List<Color> _customPalette = [
+    Color(0xFF2563EB),
+    Color(0xFF7C3AED),
+    Color(0xFFDB2777),
+    Color(0xFFE11D48),
+    Color(0xFFF97316),
+    Color(0xFF0D9488),
+    Color(0xFF171717),
+  ];
+
+  static const List<String> _presetSongs = [
+    'Lofi Chill Beats - Ennvo Studio',
+    'Midnight City Lights - Synthwave',
+    'Dhaka Sunset - Acoustic Mix',
+    'Summer Breeze - Lo-Fi Vibes',
+    'Ocean Horizon - Ambient',
+    'Original audio',
+  ];
+
+  static const List<String> _presetLocations = [
+    'Dhaka, Bangladesh',
+    'Chattogram, Bangladesh',
+    'Sylhet, Bangladesh',
+    'Cox\'s Bazar Beach',
+    'London, UK',
+    'New York, USA',
+  ];
+
   @override
   void initState() {
     super.initState();
     _mediaFile = widget.mediaFile;
+    _isVideo = widget.isVideo;
+    if (_mediaFile != null && !_isVideo) {
+      _loadMediaBytes(_mediaFile!);
+    }
     _caption.addListener(() {
       if (mounted) setState(() {});
     });
+  }
+
+  Future<void> _loadMediaBytes(XFile file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      if (!mounted || _mediaFile?.path != file.path) return;
+      setState(() => _mediaBytes = bytes);
+    } catch (_) {}
   }
 
   @override
@@ -78,42 +126,576 @@ class _CreatePageState extends ConsumerState<CreatePage> {
         imageQuality: 88,
       );
       if (photo == null || !mounted) return;
-      setState(() => _mediaFile = File(photo.path));
+      final bytes = await photo.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _mediaFile = photo;
+        _mediaBytes = bytes;
+        _isVideo = false;
+        _background = 'none';
+      });
     } catch (_) {}
   }
 
-  Future<void> _promptField({
-    required String title,
-    required String hint,
-    required String? current,
-    required ValueChanged<String?> onSave,
-  }) async {
-    final controller = TextEditingController(text: current ?? '');
-    final result = await showDialog<String>(
+  Future<void> _pickVideo() async {
+    try {
+      final video = await ImagePicker().pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: const Duration(seconds: 90),
+      );
+      if (video == null || !mounted) return;
+      setState(() {
+        _mediaFile = video;
+        _mediaBytes = null;
+        _isVideo = true;
+        _background = 'none';
+      });
+    } catch (_) {}
+  }
+
+  void _clearMedia() {
+    setState(() {
+      _mediaFile = null;
+      _mediaBytes = null;
+      _isVideo = false;
+    });
+  }
+
+  Future<void> _openPrivacyPicker() async {
+    final t = context.tokens;
+    final picked = await showModalBottomSheet<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(hintText: hint),
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.sheet),
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _SheetHandle(color: t.borderStrong),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Who can see your post?',
+                    style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
+                  ),
+                ),
+              ),
+              _PrivacyOption(
+                icon: LucideIcons.globe,
+                title: 'Public',
+                subtitle: 'Anyone on Ennvo can see this post',
+                selected: _privacy == 'public',
+                onTap: () => Navigator.of(sheetContext).pop('public'),
+              ),
+              _PrivacyOption(
+                icon: LucideIcons.users,
+                title: 'Followers',
+                subtitle: 'People who follow you',
+                selected: _privacy == 'followers',
+                onTap: () => Navigator.of(sheetContext).pop('followers'),
+              ),
+              _PrivacyOption(
+                icon: LucideIcons.shield,
+                title: 'Only me',
+                subtitle: 'Visible only on your profile',
+                selected: _privacy == 'private',
+                onTap: () => Navigator.of(sheetContext).pop('private'),
+              ),
+              const SizedBox(height: 12),
+            ],
           ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: const Text('Apply'),
+        ),
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() => _privacy = picked);
+    }
+  }
+
+  Future<void> _openSongPicker() async {
+    final controller = TextEditingController(text: _musicTitle ?? '');
+    final t = context.tokens;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: t.surface,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppRadius.sheet),
+            ),
           ),
-        ],
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SheetHandle(color: t.borderStrong),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Add Song',
+                          style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
+                        ),
+                      ),
+                      if (_musicTitle != null)
+                        TextButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(''),
+                          child: const Text('Remove'),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: t.surfaceAlt,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: t.border),
+                    ),
+                    child: Row(
+                      children: [
+                        LucideIcon(
+                          LucideIcons.music,
+                          size: 16,
+                          color: t.accent,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            style: EnnvoText.body.copyWith(color: t.textPrimary),
+                            decoration: InputDecoration(
+                              hintText: 'Song title - Artist',
+                              hintStyle: EnnvoText.body.copyWith(
+                                color: t.textTertiary,
+                              ),
+                              border: InputBorder.none,
+                            ),
+                            onSubmitted: (v) =>
+                                Navigator.of(sheetContext).pop(v.trim()),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(sheetContext)
+                              .pop(controller.text.trim()),
+                          child: const Text('Use'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                for (final track in _presetSongs)
+                  ListTile(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        gradient: AppGradients.create,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      alignment: Alignment.center,
+                      child: const LucideIcon(
+                        LucideIcons.music,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                    ),
+                    title: Text(
+                      track,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: EnnvoText.bodySemi.copyWith(
+                        color: t.textPrimary,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                    onTap: () => Navigator.of(sheetContext).pop(track),
+                  ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        ),
       ),
     );
     controller.dispose();
-    if (result == null || !mounted) return;
-    onSave(result.isEmpty ? null : result);
+    if (picked != null && mounted) {
+      setState(() => _musicTitle = picked.isEmpty ? null : picked);
+    }
+  }
+
+  Future<void> _openLocationPicker() async {
+    final controller = TextEditingController(text: _locationLabel ?? '');
+    final t = context.tokens;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: t.surface,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppRadius.sheet),
+            ),
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SheetHandle(color: t.borderStrong),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Add Location',
+                          style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
+                        ),
+                      ),
+                      if (_locationLabel != null)
+                        TextButton(
+                          onPressed: () => Navigator.of(sheetContext).pop(''),
+                          child: const Text('Remove'),
+                        ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: t.surfaceAlt,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: t.border),
+                    ),
+                    child: Row(
+                      children: [
+                        LucideIcon(
+                          LucideIcons.mapPin,
+                          size: 16,
+                          color: t.brand,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            style: EnnvoText.body.copyWith(color: t.textPrimary),
+                            decoration: InputDecoration(
+                              hintText: 'Search city or place...',
+                              hintStyle: EnnvoText.body.copyWith(
+                                color: t.textTertiary,
+                              ),
+                              border: InputBorder.none,
+                            ),
+                            onSubmitted: (v) =>
+                                Navigator.of(sheetContext).pop(v.trim()),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(sheetContext)
+                              .pop(controller.text.trim()),
+                          child: const Text('Apply'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                for (final place in _presetLocations)
+                  ListTile(
+                    leading: CircleAvatar(
+                      radius: 17,
+                      backgroundColor: t.surfaceAlt,
+                      child: LucideIcon(
+                        LucideIcons.mapPin,
+                        size: 15,
+                        color: t.brand,
+                      ),
+                    ),
+                    title: Text(
+                      place,
+                      style: EnnvoText.bodySemi.copyWith(
+                        color: t.textPrimary,
+                        fontSize: 13.5,
+                      ),
+                    ),
+                    onTap: () => Navigator.of(sheetContext).pop(place),
+                  ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+    if (picked != null && mounted) {
+      setState(() => _locationLabel = picked.isEmpty ? null : picked);
+    }
+  }
+
+  Future<void> _openTagFriends() async {
+    final following = ref.read(followingProvider).value ?? const <AppUser>[];
+    final followers = ref.read(followersProvider).value ?? const <AppUser>[];
+    final byUid = <String, AppUser>{};
+    for (final u in [...following, ...followers]) {
+      if (u.uid.isNotEmpty) byUid.putIfAbsent(u.uid, () => u);
+    }
+    final friends = byUid.values.toList(growable: false);
+    final selected = Set<String>.from(_taggedFriends);
+    final customController = TextEditingController();
+    final t = context.tokens;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.65,
+            ),
+            decoration: BoxDecoration(
+              color: t.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppRadius.sheet),
+              ),
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _SheetHandle(color: t.borderStrong),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 14, 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Tag Friends',
+                            style: EnnvoText.titleMd.copyWith(
+                              color: t.textPrimary,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _taggedFriends
+                                ..clear()
+                                ..addAll(selected);
+                            });
+                            Navigator.of(sheetContext).pop();
+                          },
+                          child: const Text('Done'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: t.surfaceAlt,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: t.border),
+                      ),
+                      child: Row(
+                        children: [
+                          LucideIcon(
+                            LucideIcons.users,
+                            size: 16,
+                            color: t.accent,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: TextField(
+                              controller: customController,
+                              style:
+                                  EnnvoText.body.copyWith(color: t.textPrimary),
+                              decoration: InputDecoration(
+                                hintText: 'Type friend name to tag...',
+                                hintStyle: EnnvoText.body.copyWith(
+                                  color: t.textTertiary,
+                                ),
+                                border: InputBorder.none,
+                              ),
+                              onSubmitted: (val) {
+                                final clean = val.trim();
+                                if (clean.isEmpty) return;
+                                setSheetState(() {
+                                  selected.add(clean);
+                                  customController.clear();
+                                });
+                              },
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              final clean = customController.text.trim();
+                              if (clean.isEmpty) return;
+                              setSheetState(() {
+                                selected.add(clean);
+                                customController.clear();
+                              });
+                            },
+                            child: const Text('Add'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (friends.isNotEmpty)
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: friends.length,
+                        itemBuilder: (_, index) {
+                          final f = friends[index];
+                          final label = f.name.isNotEmpty
+                              ? f.name
+                              : (f.username.isNotEmpty
+                                    ? '@${f.username}'
+                                    : f.uid);
+                          final isSelected = selected.contains(label);
+                          return CheckboxListTile(
+                            value: isSelected,
+                            activeColor: t.accent,
+                            secondary: _ComposerAvatar(
+                              url: f.avatar,
+                              name: label,
+                              size: 36,
+                            ),
+                            title: Text(
+                              label,
+                              style: EnnvoText.bodySemi.copyWith(
+                                color: t.textPrimary,
+                              ),
+                            ),
+                            onChanged: (checked) {
+                              setSheetState(() {
+                                if (checked == true) {
+                                  selected.add(label);
+                                } else {
+                                  selected.remove(label);
+                                }
+                              });
+                            },
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                      child: Text(
+                        'Type a friend name above to tag them in this post.',
+                        style: EnnvoText.caption.copyWith(
+                          color: t.textSecondary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    customController.dispose();
+  }
+
+  Future<void> _pickCustomColor() async {
+    final t = context.tokens;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppRadius.sheet),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SheetHandle(color: t.borderStrong),
+              const SizedBox(height: 8),
+              Text(
+                'Custom Card Color',
+                style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  for (final color in _customPalette)
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _customColor = color;
+                          _background = 'custom';
+                        });
+                        Navigator.of(sheetContext).pop();
+                      },
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: color,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: _customColor == color
+                                ? t.accent
+                                : Colors.white.withValues(alpha: 0.7),
+                            width: _customColor == color ? 3 : 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _openAdvancedSettings() async {
@@ -150,14 +732,23 @@ class _CreatePageState extends ConsumerState<CreatePage> {
   Widget build(BuildContext context) {
     final t = context.tokens;
     final top = MediaQuery.paddingOf(context).top;
+    final user = ref.watch(authControllerProvider).user;
+    final userName = (user?.name ?? '').isEmpty ? 'You' : user!.name;
+    final hasBigTextBg = _mediaFile == null && _background != 'none';
+    final canPost =
+        !_uploading && (_mediaFile != null || _caption.text.trim().isNotEmpty);
 
     return Scaffold(
       backgroundColor: t.background,
       body: Column(
         children: [
-          // --- header -------------------------------------------------
-          Padding(
-            padding: EdgeInsets.fromLTRB(6, top + 6, 12, 6),
+          // --- header ---------------------------------------------------
+          Container(
+            padding: EdgeInsets.fromLTRB(6, top + 6, 14, 8),
+            decoration: BoxDecoration(
+              color: t.background,
+              border: Border(bottom: BorderSide(color: t.border)),
+            ),
             child: Row(
               children: [
                 IconButton(
@@ -178,7 +769,7 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                 ),
                 Expanded(
                   child: Text(
-                    widget.isReel ? 'New reel' : 'Create',
+                    widget.isReel ? 'New reel' : 'Create post',
                     style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
                   ),
                 ),
@@ -197,12 +788,23 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                   ),
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: _uploading ? null : _publish,
-                  child: Text(
-                    'Share',
-                    style: EnnvoText.bodySemi.copyWith(
-                      color: _uploading ? t.textTertiary : t.accent,
-                      fontSize: 14.5,
+                  onTap: canPost ? _publish : null,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: canPost ? t.accent : t.surfaceAlt,
+                      borderRadius: BorderRadius.circular(AppRadius.pill),
+                    ),
+                    child: Text(
+                      widget.isReel ? 'Share' : 'Post',
+                      style: EnnvoText.bodySemi.copyWith(
+                        color: canPost ? Colors.white : t.textTertiary,
+                        fontSize: 13.5,
+                      ),
                     ),
                   ),
                 ),
@@ -212,226 +814,403 @@ class _CreatePageState extends ConsumerState<CreatePage> {
 
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 6, 16, 32),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
               children: [
-                // --- the media area ------------------------------------
-                AspectRatio(
-                  aspectRatio: widget.isReel ? 9 / 16 : 1,
-                  child: GestureDetector(
-                    onTap: _mediaFile == null ? _pickPhoto : null,
-                    child: Container(
-                      clipBehavior: Clip.antiAlias,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(AppRadius.xxl),
-                        gradient: _backgroundGradient(),
-                        color: _background == 'none' ? t.surfaceAlt : null,
-                      ),
-                      child: Stack(
+                // --- author + audience pill ---------------------------
+                Row(
+                  children: [
+                    _ComposerAvatar(
+                      url: user?.avatar ?? '',
+                      name: userName,
+                      size: 44,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (_mediaFile != null)
-                            Positioned.fill(
-                              child: Image.file(
-                                _mediaFile!,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) =>
-                                    const SizedBox.shrink(),
-                              ),
+                          Text(
+                            userName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: EnnvoText.bodySemi.copyWith(
+                              color: t.textPrimary,
+                              fontSize: 15,
                             ),
-                          if (_mediaFile == null && _background == 'none')
-                            Center(
-                              child: Column(
+                          ),
+                          const SizedBox(height: 4),
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _openPrivacyPicker,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: t.surfaceAlt,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: t.border),
+                              ),
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   LucideIcon(
-                                    LucideIcons.image,
-                                    size: 44,
-                                    strokeWidth: 1.6,
-                                    color: t.textTertiary,
+                                    _privacy == 'followers'
+                                        ? LucideIcons.users
+                                        : (_privacy == 'private'
+                                              ? LucideIcons.shield
+                                              : LucideIcons.globe),
+                                    size: 12,
+                                    color: t.textSecondary,
                                   ),
-                                  const SizedBox(height: 10),
+                                  const SizedBox(width: 5),
                                   Text(
-                                    'Tap to pick a photo or write text below',
-                                    style: EnnvoText.body.copyWith(
+                                    _privacy == 'followers'
+                                        ? 'Followers'
+                                        : (_privacy == 'private'
+                                              ? 'Only me'
+                                              : 'Public'),
+                                    style: EnnvoText.tiny.copyWith(
                                       color: t.textSecondary,
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
                                     ),
+                                  ),
+                                  const SizedBox(width: 3),
+                                  LucideIcon(
+                                    LucideIcons.chevronDown,
+                                    size: 12,
+                                    color: t.textSecondary,
                                   ),
                                 ],
                               ),
                             ),
-                          if (_caption.text.isNotEmpty)
-                            Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(20),
-                                child: Text(
-                                  _caption.text,
-                                  textAlign: TextAlign.center,
-                                  style: EnnvoText.pageHero.copyWith(
-                                    color: _background == 'none' &&
-                                            _mediaFile == null
-                                        ? t.textPrimary
-                                        : Colors.white,
-                                    fontSize: 22,
-                                  ),
-                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // --- caption / big-text rounded card --------------------
+                if (hasBigTextBg)
+                  Container(
+                    constraints: const BoxConstraints(minHeight: 240),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 32,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(22),
+                      gradient: _backgroundGradient(),
+                      color: _solidBackgroundColor(),
+                    ),
+                    alignment: Alignment.center,
+                    child: TextField(
+                      controller: _caption,
+                      maxLines: 7,
+                      minLines: 2,
+                      textAlign: TextAlign.center,
+                      textCapitalization: TextCapitalization.sentences,
+                      style: EnnvoText.pageHero.copyWith(
+                        color: Colors.white,
+                        fontSize: 22,
+                        height: 1.35,
+                      ),
+                      cursorColor: Colors.white,
+                      decoration: InputDecoration(
+                        hintText: "What's on your mind?",
+                        hintStyle: EnnvoText.pageHero.copyWith(
+                          color: Colors.white.withValues(alpha: 0.7),
+                          fontSize: 22,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                      ),
+                    ),
+                  )
+                else
+                  TextField(
+                    controller: _caption,
+                    maxLines: 8,
+                    minLines: _mediaFile == null ? 4 : 2,
+                    textCapitalization: TextCapitalization.sentences,
+                    textInputAction: TextInputAction.newline,
+                    style: EnnvoText.body.copyWith(
+                      color: t.textPrimary,
+                      fontSize: _mediaFile == null ? 18 : 15.5,
+                      height: 1.45,
+                    ),
+                    cursorColor: t.accent,
+                    decoration: InputDecoration(
+                      hintText: _mediaFile != null
+                          ? 'Say something about this...'
+                          : "What's on your mind?",
+                      hintStyle: EnnvoText.body.copyWith(
+                        color: t.textTertiary,
+                        fontSize: _mediaFile == null ? 18 : 15.5,
+                      ),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+
+                // --- big-text background swatch strip -------------------
+                if (_mediaFile == null && !widget.isReel) ...[
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 44,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final entry
+                            in AppGradients.bigTextBackgrounds.entries)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: _GradientSwatch(
+                              id: entry.key,
+                              css: entry.value,
+                              isSelected: _background == entry.key,
+                              onTap: () =>
+                                  setState(() => _background = entry.key),
+                            ),
+                          ),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _pickCustomColor,
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: _customColor,
+                              border: Border.all(
+                                color: _background == 'custom'
+                                    ? t.accent
+                                    : Colors.white.withValues(alpha: 0.7),
+                                width: _background == 'custom' ? 3 : 1.5,
                               ),
                             ),
-                          if (_mediaFile != null)
-                            Positioned(
-                              top: 10,
-                              right: 10,
-                              child: GestureDetector(
-                                onTap: () => setState(() => _mediaFile = null),
-                                child: Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0x99000000),
+                            alignment: Alignment.center,
+                            child: const Icon(
+                              Icons.palette_outlined,
+                              size: 18,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // --- selected media preview (rounded 22px) --------------
+                if (_mediaFile != null) ...[
+                  const SizedBox(height: 16),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Stack(
+                      children: [
+                        if (_isVideo)
+                          Container(
+                            height: 240,
+                            width: double.infinity,
+                            color: const Color(0xFF0F172A),
+                            alignment: Alignment.center,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 56,
+                                  height: 56,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.16),
                                     shape: BoxShape.circle,
                                   ),
                                   alignment: Alignment.center,
                                   child: const LucideIcon(
-                                    LucideIcons.x,
-                                    size: 16,
+                                    LucideIcons.video,
+                                    size: 26,
                                     color: Colors.white,
                                   ),
                                 ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  _mediaFile!.name.isEmpty
+                                      ? 'Video attached'
+                                      : _mediaFile!.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: EnnvoText.caption.copyWith(
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        else if (_mediaBytes != null)
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxHeight: 380),
+                            child: Image.memory(
+                              _mediaBytes!,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        else
+                          Container(
+                            height: 220,
+                            width: double.infinity,
+                            color: t.surfaceAlt,
+                            alignment: Alignment.center,
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          ),
+                        Positioned(
+                          top: 10,
+                          right: 10,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: _clearMedia,
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: const BoxDecoration(
+                                color: Color(0xAA000000),
+                                shape: BoxShape.circle,
+                              ),
+                              alignment: Alignment.center,
+                              child: const LucideIcon(
+                                LucideIcons.x,
+                                size: 16,
+                                color: Colors.white,
                               ),
                             ),
-                        ],
-                      ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
+                ],
 
-                if (_musicTitle != null || _locationLabel != null) ...[
-                  const SizedBox(height: 12),
+                // --- metadata pills (music, location, tags) -------------
+                if (_musicTitle != null ||
+                    _locationLabel != null ||
+                    _taggedFriends.isNotEmpty) ...[
+                  const SizedBox(height: 14),
                   Wrap(
                     spacing: 8,
                     runSpacing: 6,
                     children: [
                       if (_musicTitle != null)
                         Chip(
+                          avatar: LucideIcon(
+                            LucideIcons.music,
+                            size: 14,
+                            color: t.accent,
+                          ),
                           label: Text(_musicTitle!),
                           onDeleted: () => setState(() => _musicTitle = null),
                         ),
                       if (_locationLabel != null)
                         Chip(
+                          avatar: LucideIcon(
+                            LucideIcons.mapPin,
+                            size: 14,
+                            color: t.brand,
+                          ),
                           label: Text(_locationLabel!),
                           onDeleted: () =>
                               setState(() => _locationLabel = null),
+                        ),
+                      for (final friend in _taggedFriends)
+                        Chip(
+                          avatar: LucideIcon(
+                            LucideIcons.users,
+                            size: 14,
+                            color: t.accent,
+                          ),
+                          label: Text(friend),
+                          onDeleted: () => setState(
+                            () => _taggedFriends.remove(friend),
+                          ),
                         ),
                     ],
                   ),
                 ],
 
-                const SizedBox(height: 18),
+                const SizedBox(height: 20),
 
-                EnnvoTextField(
-                  label: 'Caption',
-                  controller: _caption,
-                  hint: 'Write a caption…',
-                  maxLines: 4,
-                  minLines: 2,
-                  textCapitalization: TextCapitalization.sentences,
-                  textInputAction: TextInputAction.newline,
-                ),
-                const SizedBox(height: 18),
-
-                Row(
-                  children: [
-                    _ToolButton(
-                      icon: const LucideIcon(
-                        LucideIcons.image,
-                        size: 20,
-                        strokeWidth: 2.2,
-                      ),
-                      label: 'Photo',
-                      onTap: _pickPhoto,
-                    ),
-                    _ToolButton(
-                      icon: const LucideIcon(
-                        LucideIcons.music,
-                        size: 20,
-                        strokeWidth: 2.2,
-                      ),
-                      label: 'Music',
-                      onTap: () => _promptField(
-                        title: 'Add song',
-                        hint: 'Song title - Artist',
-                        current: _musicTitle,
-                        onSave: (v) => setState(() => _musicTitle = v),
-                      ),
-                    ),
-                    _ToolButton(
-                      icon: const LucideIcon(
-                        LucideIcons.mapPin,
-                        size: 20,
-                        strokeWidth: 2.2,
-                      ),
-                      label: 'Location',
-                      onTap: () => _promptField(
-                        title: 'Add location',
-                        hint: 'City or place',
-                        current: _locationLabel,
-                        onSave: (v) => setState(() => _locationLabel = v),
-                      ),
-                    ),
-                    _ToolButton(
-                      icon: const LucideIcon(
-                        LucideIcons.sliders,
-                        size: 20,
-                        strokeWidth: 2.2,
-                      ),
-                      label: 'Settings',
-                      onTap: _openAdvancedSettings,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-
-                Text(
-                  'BIG TEXT BACKGROUND',
-                  style: EnnvoText.overlineXs.copyWith(
-                    color: t.textSecondary,
-                    fontSize: 11,
+                // --- Facebook-style "Add to your post" action card ------
+                Container(
+                  decoration: BoxDecoration(
+                    color: t.surface,
+                    borderRadius: BorderRadius.circular(AppRadius.xl),
+                    border: Border.all(color: t.border),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final entry in AppGradients.bigTextBackgrounds.entries)
-                      _GradientSwatch(
-                        id: entry.key,
-                        css: entry.value,
-                        isSelected: _background == entry.key,
-                        onTap: () => setState(() => _background = entry.key),
+                  child: Column(
+                    children: [
+                      _AddRow(
+                        icon: LucideIcons.image,
+                        iconColor: const Color(0xFF10B981),
+                        label: 'Photo',
+                        trailing: _mediaFile != null && !_isVideo
+                            ? 'Attached'
+                            : null,
+                        onTap: _pickPhoto,
                       ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => setState(() => _background = 'custom'),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _customColor,
-                          border: Border.all(
-                            color: _background == 'custom'
-                                ? t.accent
-                                : Colors.white.withValues(alpha: 0.6),
-                            width: _background == 'custom' ? 3 : 1.5,
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.palette_outlined,
-                          size: 18,
-                          color: Colors.white70,
-                        ),
+                      Divider(height: 1, color: t.border),
+                      _AddRow(
+                        icon: LucideIcons.video,
+                        iconColor: const Color(0xFFF43F5E),
+                        label: 'Video',
+                        trailing: _mediaFile != null && _isVideo
+                            ? 'Attached'
+                            : null,
+                        onTap: _pickVideo,
                       ),
-                    ),
-                  ],
+                      Divider(height: 1, color: t.border),
+                      _AddRow(
+                        icon: LucideIcons.music,
+                        iconColor: const Color(0xFF8B5CF6),
+                        label: 'Song / Music',
+                        trailing: _musicTitle,
+                        onTap: _openSongPicker,
+                      ),
+                      Divider(height: 1, color: t.border),
+                      _AddRow(
+                        icon: LucideIcons.mapPin,
+                        iconColor: const Color(0xFFEF4444),
+                        label: 'Location',
+                        trailing: _locationLabel,
+                        onTap: _openLocationPicker,
+                      ),
+                      Divider(height: 1, color: t.border),
+                      _AddRow(
+                        icon: LucideIcons.users,
+                        iconColor: const Color(0xFF0EA5E9),
+                        label: 'Tag friends',
+                        trailing: _taggedFriends.isEmpty
+                            ? null
+                            : '${_taggedFriends.length} tagged',
+                        onTap: _openTagFriends,
+                      ),
+                      Divider(height: 1, color: t.border),
+                      _AddRow(
+                        icon: LucideIcons.sliders,
+                        iconColor: t.textSecondary,
+                        label: 'Advanced settings',
+                        onTap: _openAdvancedSettings,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -445,7 +1224,9 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     if (_uploading || _published) return;
     if (_mediaFile == null && _caption.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add a photo or write something first.')),
+        const SnackBar(
+          content: Text('Add a photo, video, or write something first.'),
+        ),
       );
       return;
     }
@@ -461,9 +1242,10 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     String? url;
     if (file != null) {
       try {
-        final uploaded = await UploadService.uploadFile(
+        final uploaded = await UploadService.uploadXFile(
           file: file,
           folder: widget.isReel ? 'reels' : 'posts',
+          contentType: _isVideo ? 'video/mp4' : null,
           onProgress: (sent, total) {
             if (!mounted || total <= 0) return;
             setState(() => _progress = sent / total);
@@ -476,9 +1258,14 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     }
 
     final id = 'post-${DateTime.now().millisecondsSinceEpoch}';
-    final caption = _locationLabel == null
-        ? _caption.text.trim()
-        : '${_caption.text.trim()}\n📍 $_locationLabel'.trim();
+    final caption = _caption.text.trim();
+    final isBigText = _mediaFile == null && _background != 'none';
+    String? backgroundValue;
+    if (isBigText) {
+      backgroundValue = _background == 'custom'
+          ? _hexOf(_customColor)
+          : AppGradients.bigTextBackgrounds[_background];
+    }
 
     final written = await PostService.create(
       id: id,
@@ -488,10 +1275,15 @@ class _CreatePageState extends ConsumerState<CreatePage> {
       authorUsername: user?.username ?? '',
       text: caption,
       media: url == null ? const <String>[] : <String>[url],
-      mediaTypes: url == null ? const <String>[] : const <String>['image'],
-      type: widget.isReel ? 'reel' : 'post',
+      mediaTypes: url == null
+          ? const <String>[]
+          : <String>[_isVideo ? 'video' : 'image'],
+      type: widget.isReel ? 'reel' : (isBigText ? 'text' : 'post'),
       songTitle: _musicTitle,
       privacy: _privacy,
+      location: _locationLabel,
+      taggedUsers: List<String>.of(_taggedFriends),
+      background: backgroundValue,
       commentsDisabled: _commentsDisabled,
       allowRemix: _allowRemix,
       hideLikes: _hideLikes,
@@ -511,22 +1303,37 @@ class _CreatePageState extends ConsumerState<CreatePage> {
       } else {
         ref.read(navControllerProvider).popPage();
       }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not publish post. Try again.')),
+      );
     }
   }
 
-  Gradient? _backgroundGradient() {
-    if (_background == 'custom') {
-      return LinearGradient(
-        begin: Alignment.topRight,
-        end: Alignment.bottomLeft,
-        colors: [_customColor, _customColor.withValues(alpha: 0.7)],
-      );
-    }
+  static String _hexOf(Color c) {
+    final r = (c.r * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
+    final g = (c.g * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
+    final b = (c.b * 255).round().clamp(0, 255).toRadixString(16).padLeft(2, '0');
+    return '#$r$g$b';
+  }
 
+  Color? _solidBackgroundColor() {
+    if (_background == 'custom') return _customColor;
+    final css = AppGradients.bigTextBackgrounds[_background];
+    if (css != null && css.startsWith('#')) {
+      final parsed = _parseCssGradient(css);
+      if (parsed.isNotEmpty) return parsed.first.$1;
+    }
+    return null;
+  }
+
+  Gradient? _backgroundGradient() {
+    if (_background == 'custom') return null;
     final css = AppGradients.bigTextBackgrounds[_background];
     if (css == null || css.isEmpty || css.startsWith('#')) return null;
 
     final stops = _parseCssGradient(css);
+    if (stops.length < 2) return null;
     return LinearGradient(
       begin: Alignment.topRight,
       end: Alignment.bottomLeft,
@@ -561,44 +1368,175 @@ class _CreatePageState extends ConsumerState<CreatePage> {
   }
 }
 
-class _ToolButton extends StatelessWidget {
-  const _ToolButton({
+class _ComposerAvatar extends StatelessWidget {
+  const _ComposerAvatar({
+    required this.url,
+    required this.name,
+    required this.size,
+  });
+
+  final String url;
+  final String name;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final fallback = Container(
+      width: size,
+      height: size,
+      color: t.surfaceAlt,
+      alignment: Alignment.center,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+      ),
+    );
+    if (url.isEmpty) return ClipOval(child: fallback);
+    return ClipOval(
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(top: 10, bottom: 10),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(4),
+        ),
+      ),
+    );
+  }
+}
+
+class _PrivacyOption extends StatelessWidget {
+  const _PrivacyOption({
     required this.icon,
-    required this.label,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
     required this.onTap,
   });
 
-  final Widget icon;
-  final String label;
+  final String icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: selected ? t.accentSoft : t.surfaceAlt,
+        child: LucideIcon(
+          icon,
+          size: 18,
+          color: selected ? t.accent : t.textSecondary,
+        ),
+      ),
+      title: Text(
+        title,
+        style: EnnvoText.bodySemi.copyWith(color: t.textPrimary),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: EnnvoText.caption.copyWith(color: t.textSecondary),
+      ),
+      trailing: selected
+          ? Icon(Icons.check_circle_rounded, color: t.accent)
+          : null,
+      onTap: onTap,
+    );
+  }
+}
 
-    return Expanded(
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Column(
+class _AddRow extends StatelessWidget {
+  const _AddRow({
+    required this.icon,
+    required this.iconColor,
+    required this.label,
+    required this.onTap,
+    this.trailing,
+  });
+
+  final String icon;
+  final Color iconColor;
+  final String label;
+  final String? trailing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        child: Row(
           children: [
             Container(
-              width: 46,
-              height: 46,
+              width: 34,
+              height: 34,
               decoration: BoxDecoration(
-                color: t.surfaceAlt,
-                borderRadius: BorderRadius.circular(AppRadius.lg),
+                color: iconColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
               ),
               alignment: Alignment.center,
-              child: icon,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              label,
-              style: EnnvoText.tiny.copyWith(
-                color: t.textSecondary,
-                fontSize: 10.5,
+              child: LucideIcon(
+                icon,
+                size: 18,
+                strokeWidth: 2.1,
+                color: iconColor,
               ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: EnnvoText.bodySemi.copyWith(
+                  color: t.textPrimary,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            if (trailing != null && trailing!.isNotEmpty) ...[
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 140),
+                child: Text(
+                  trailing!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: EnnvoText.caption.copyWith(color: t.accent),
+                ),
+              ),
+              const SizedBox(width: 6),
+            ],
+            LucideIcon(
+              LucideIcons.chevronRight,
+              size: 16,
+              color: t.textTertiary,
             ),
           ],
         ),
@@ -629,11 +1567,11 @@ class _GradientSwatch extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
-        width: 44,
-        height: 44,
+        width: 40,
+        height: 40,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(AppRadius.md),
-          gradient: stops.isEmpty
+          borderRadius: BorderRadius.circular(12),
+          gradient: stops.length < 2
               ? null
               : LinearGradient(
                   begin: Alignment.topRight,
@@ -641,12 +1579,22 @@ class _GradientSwatch extends StatelessWidget {
                   colors: stops.map((e) => e.$1).toList(),
                   stops: stops.map((e) => e.$2).toList(),
                 ),
-          color: stops.isEmpty ? const Color(0xFF171717) : null,
+          color: id == 'none'
+              ? t.surfaceAlt
+              : (stops.length == 1 ? stops.first.$1 : null),
           border: Border.all(
-            color: isSelected ? t.accent : Colors.white.withValues(alpha: 0.6),
-            width: isSelected ? 3 : 1.5,
+            color: isSelected ? t.accent : t.borderStrong,
+            width: isSelected ? 2.5 : 1.0,
           ),
         ),
+        alignment: Alignment.center,
+        child: id == 'none'
+            ? LucideIcon(
+                LucideIcons.x,
+                size: 16,
+                color: t.textSecondary,
+              )
+            : null,
       ),
     );
   }

@@ -28,8 +28,8 @@ class ChatService {
 
   /// Subscribes to every conversation the user takes part in.
   ///
-  /// Sorted client-side by `updatedAt` descending so no Firestore composite
-  /// index on `participantIds + updatedAt` is needed.
+  /// Sorted client-side by `updatedAt` descending and deduplicated per direct
+  /// peer so an id never appears multiple times in the inbox list.
   static Stream<List<Conversation>> subscribeConversations(String userId) {
     if (!FirebaseService.isReady || userId.isEmpty) {
       return Stream.value(const <Conversation>[]);
@@ -38,19 +38,103 @@ class ChatService {
     return FirebaseService.firestore
         .collection('conversations')
         .where('participantIds', arrayContains: userId)
-        .limit(60)
+        .limit(80)
         .snapshots()
-        .map((snapshot) {
-          final items = snapshot.docs
-              .map(Conversation.fromFirestore)
-              .toList(growable: false);
-          items.sort((a, b) {
-            final aMs = a.updatedAt?.millisecondsSinceEpoch ?? 0;
-            final bMs = b.updatedAt?.millisecondsSinceEpoch ?? 0;
-            return bMs.compareTo(aMs);
-          });
-          return items;
-        });
+        .map(
+          (snapshot) => deduplicateConversations(
+            snapshot.docs
+                .map(Conversation.fromFirestore)
+                .toList(growable: false),
+            userId,
+          ),
+        );
+  }
+
+  /// Deduplicates 1:1 direct conversations by peer user id, merging metadata
+  /// and keeping the richest/newest record first.
+  static List<Conversation> deduplicateConversations(
+    List<Conversation> raw,
+    String currentUserId,
+  ) {
+    final sorted = List<Conversation>.of(raw)
+      ..sort((a, b) {
+        final aMs = a.updatedAt?.millisecondsSinceEpoch ?? 0;
+        final bMs = b.updatedAt?.millisecondsSinceEpoch ?? 0;
+        if (aMs != bMs) return bMs.compareTo(aMs);
+        final aHasMsg = a.lastMessage.trim().isNotEmpty ? 1 : 0;
+        final bHasMsg = b.lastMessage.trim().isNotEmpty ? 1 : 0;
+        return bHasMsg.compareTo(aHasMsg);
+      });
+
+    final byKey = <String, Conversation>{};
+    for (final conv in sorted) {
+      final peer = conv.isGroup ? null : conv.otherParticipantId(currentUserId);
+      final key = (peer != null && peer.isNotEmpty)
+          ? 'dm:$peer'
+          : 'conv:${conv.id}';
+      final existing = byKey[key];
+      if (existing == null) {
+        byKey[key] = conv;
+        continue;
+      }
+
+      // Merge participant names & avatars and take best non-empty lastMessage
+      // while preserving unread counts.
+      final mergedNames = <String, String>{...conv.participantNames};
+      existing.participantNames.forEach((k, v) {
+        if (v.trim().isNotEmpty && v != 'Unknown') {
+          mergedNames[k] = v;
+        }
+      });
+
+      final mergedAvatars = <String, String>{...conv.participantAvatars};
+      existing.participantAvatars.forEach((k, v) {
+        if (v.trim().isNotEmpty) {
+          mergedAvatars[k] = v;
+        }
+      });
+
+      final mergedUnread = <String, int>{...conv.unreadCount};
+      existing.unreadCount.forEach((k, v) {
+        final cur = mergedUnread[k] ?? 0;
+        if (v > cur) mergedUnread[k] = v;
+      });
+
+      final pickExistingPrimary = existing.lastMessage.trim().isNotEmpty ||
+          conv.lastMessage.trim().isEmpty;
+
+      final primary = pickExistingPrimary ? existing : conv;
+      byKey[key] = Conversation(
+        id: primary.id,
+        participantIds: primary.participantIds,
+        participantNames: mergedNames,
+        participantAvatars: mergedAvatars,
+        lastMessage: existing.lastMessage.trim().isNotEmpty
+            ? existing.lastMessage
+            : conv.lastMessage,
+        unreadCount: mergedUnread,
+        updatedAt: existing.updatedAt ?? conv.updatedAt,
+        typing: existing.typing.isNotEmpty ? existing.typing : conv.typing,
+        theme: existing.theme ?? conv.theme,
+        isGroup: existing.isGroup,
+        groupName: existing.groupName ?? conv.groupName,
+        groupAvatar: existing.groupAvatar ?? conv.groupAvatar,
+        isRequest: existing.isRequest && conv.isRequest,
+        requestTo: existing.requestTo ?? conv.requestTo,
+        requestFrom: existing.requestFrom ?? conv.requestFrom,
+        requestStatus: existing.requestStatus ?? conv.requestStatus,
+        requestMessageCount:
+            existing.requestMessageCount ?? conv.requestMessageCount,
+      );
+    }
+
+    final result = byKey.values.toList(growable: false);
+    result.sort((a, b) {
+      final aMs = a.updatedAt?.millisecondsSinceEpoch ?? 0;
+      final bMs = b.updatedAt?.millisecondsSinceEpoch ?? 0;
+      return bMs.compareTo(aMs);
+    });
+    return result;
   }
 
   /// Creates a direct conversation, or returns the existing one.
@@ -62,12 +146,30 @@ class ChatService {
     String currentUserName = 'You',
     String currentUserAvatar = '',
   }) async {
-    final id = Conversation.directId(currentUserId, otherUserId);
+    final canonicalId = Conversation.directId(currentUserId, otherUserId);
 
     if (FirebaseService.isReady) {
+      // First look for any pre-existing direct thread with this peer so we
+      // never create a duplicate conversation document (e.g., auto-ID vs sorted ID).
+      try {
+        final existingQuery = await FirebaseService.firestore
+            .collection('conversations')
+            .where('participantIds', arrayContains: currentUserId)
+            .limit(80)
+            .get();
+        for (final doc in existingQuery.docs) {
+          final conv = Conversation.fromFirestore(doc);
+          if (!conv.isGroup && conv.participantIds.contains(otherUserId)) {
+            return doc.id;
+          }
+        }
+      } catch (_) {
+        // Fall through to canonical id check.
+      }
+
       final ref = FirebaseService.firestore
           .collection('conversations')
-          .doc(id);
+          .doc(canonicalId);
       final snapshot = await ref.get();
       if (!snapshot.exists) {
         await ref.set({
@@ -88,7 +190,7 @@ class ChatService {
       }
     }
 
-    return id;
+    return canonicalId;
   }
 
   // -------------------------------------------------------------------

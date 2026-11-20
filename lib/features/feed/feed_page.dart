@@ -6,7 +6,6 @@
 // ============================================================================
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -47,6 +46,7 @@ class FeedPage extends ConsumerStatefulWidget {
 
 class _FeedPageState extends ConsumerState<FeedPage> {
   final Set<String> _liked = <String>{};
+  final Set<String> _saved = <String>{};
   final Set<String> _reposted = <String>{};
 
   Future<void> _refresh() async {
@@ -80,6 +80,14 @@ class _FeedPageState extends ConsumerState<FeedPage> {
     );
   }
 
+  Future<void> _openCreatePost({XFile? mediaFile, bool isVideo = false}) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CreatePage(mediaFile: mediaFile, isVideo: isVideo),
+      ),
+    );
+  }
+
   Future<void> _pickPhotoAndCreate() async {
     try {
       final photo = await ImagePicker().pickImage(
@@ -88,18 +96,10 @@ class _FeedPageState extends ConsumerState<FeedPage> {
         imageQuality: 88,
       );
       if (!mounted) return;
-      if (photo == null) {
-        ref.read(navControllerProvider).pushPage(AppPage.create);
-        return;
-      }
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => CreatePage(mediaFile: File(photo.path)),
-        ),
-      );
+      await _openCreatePost(mediaFile: photo);
     } catch (_) {
       if (mounted) {
-        ref.read(navControllerProvider).pushPage(AppPage.create);
+        await _openCreatePost();
       }
     }
   }
@@ -109,21 +109,13 @@ class _FeedPageState extends ConsumerState<FeedPage> {
       final video = await ImagePicker().pickVideo(source: ImageSource.gallery);
       if (!mounted) return;
       if (video == null) {
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const CameraPage()),
-        );
+        await _openCreatePost();
         return;
       }
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => CreatePage(mediaFile: File(video.path), isReel: false),
-        ),
-      );
+      await _openCreatePost(mediaFile: video, isVideo: true);
     } catch (_) {
       if (mounted) {
-        await Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const CameraPage()),
-        );
+        await _openCreatePost();
       }
     }
   }
@@ -205,6 +197,22 @@ class _FeedPageState extends ConsumerState<FeedPage> {
       currentlyReposted: reposted,
       currentCount: post.repostsCount,
     );
+  }
+
+  void _toggleSave(AppPost post) {
+    HapticFeedback.lightImpact();
+    final saved = _saved.contains(post.id);
+    setState(() {
+      if (saved) {
+        _saved.remove(post.id);
+      } else {
+        _saved.add(post.id);
+      }
+    });
+
+    final user = ref.read(authControllerProvider).user;
+    if (user == null) return;
+    PostService.toggleSave(postId: post.id, userId: user.uid);
   }
 
   Future<void> _openComments(AppPost post) async {
@@ -387,8 +395,7 @@ class _FeedPageState extends ConsumerState<FeedPage> {
               child: _FeedHeader(
                 onSearch: () =>
                     ref.read(navControllerProvider).pushPage(AppPage.search),
-                onCreate: () =>
-                    ref.read(navControllerProvider).pushPage(AppPage.create),
+                onCreate: () => _openCreatePost(),
               ),
             ),
 
@@ -404,8 +411,7 @@ class _FeedPageState extends ConsumerState<FeedPage> {
                     viewerId: me?.uid ?? '',
                     viewerAvatar: me?.avatar ?? '',
                     viewerName: me?.name ?? '',
-                    onAdd: () =>
-                        ref.read(navControllerProvider).pushPage(AppPage.create),
+                    onAdd: () => _openCreatePost(),
                     onOpenStory: (index) => _openStoryViewer(unique, index),
                   );
                 },
@@ -418,8 +424,7 @@ class _FeedPageState extends ConsumerState<FeedPage> {
                 name: me?.name ?? '',
                 avatar: me?.avatar ?? '',
                 isLite: isLite,
-                onTap: () =>
-                    ref.read(navControllerProvider).pushPage(AppPage.create),
+                onTap: () => _openCreatePost(),
                 onPhoto: _pickPhotoAndCreate,
                 onVideo: _pickVideoAndCreate,
                 onReel: _openReelCapture,
@@ -450,7 +455,7 @@ class _FeedPageState extends ConsumerState<FeedPage> {
                   );
                 }
                 return SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 90),
+                  padding: const EdgeInsets.only(bottom: 90),
                   sliver: SliverList.builder(
                     itemCount: posts.length,
                     itemBuilder: (context, index) {
@@ -460,10 +465,14 @@ class _FeedPageState extends ConsumerState<FeedPage> {
                           post: post,
                           isLite: isLite,
                           isLiked: _liked.contains(post.id),
+                          isSaved: _saved.contains(post.id),
                           isReposted: _reposted.contains(post.id),
                           likesCount:
                               post.likesCount + (_liked.contains(post.id) ? 1 : 0),
+                          favoritesCount: post.favoritesCount +
+                              (_saved.contains(post.id) ? 1 : 0),
                           onToggleLike: () => _toggleLike(post),
+                          onToggleSave: () => _toggleSave(post),
                           onToggleRepost: () => _toggleRepost(post),
                           onOpenProfile: () => _openAuthorProfile(post),
                           onComment: () => _openComments(post),
@@ -815,87 +824,72 @@ class _ComposerCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: t.surface,
-          borderRadius: BorderRadius.circular(AppRadius.xl),
-          border: Border.all(color: t.border),
-          boxShadow: (t.isDark || isLite)
-              ? null
-              : const [
-                  BoxShadow(
-                    color: Color(0x0A0F172A),
-                    blurRadius: 12,
-                    offset: Offset(0, 3),
-                  ),
-                ],
-        ),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
-              child: Row(
-                children: [
-                  _FeedAvatar(url: avatar, name: name, size: 40),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: onTap,
-                      child: Container(
-                        height: 42,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        decoration: BoxDecoration(
-                          color: t.surfaceAlt,
-                          borderRadius: BorderRadius.circular(21),
-                          border: Border.all(color: t.border),
-                        ),
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          "What's on your mind?",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: EnnvoText.body.copyWith(
-                            color: t.textSecondary,
-                            fontSize: 14,
-                          ),
+    return ColoredBox(
+      color: t.background,
+      child: Column(
+        children: [
+          Divider(height: 1, thickness: 1, color: t.border),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+            child: Row(
+              children: [
+                _FeedAvatar(url: avatar, name: name, size: 40),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onTap,
+                    child: Container(
+                      height: 42,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: t.surfaceAlt,
+                        borderRadius: BorderRadius.circular(21),
+                        border: Border.all(color: t.border),
+                      ),
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "What's on your mind?",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: EnnvoText.body.copyWith(
+                          color: t.textSecondary,
+                          fontSize: 14,
                         ),
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            Divider(height: 1, color: t.border),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              child: Row(
-                children: [
-                  _ComposerAction(
-                    icon: LucideIcons.image,
-                    label: 'Photo',
-                    color: const Color(0xFF22C55E),
-                    onTap: onPhoto,
-                  ),
-                  _ComposerAction(
-                    icon: LucideIcons.video,
-                    label: 'Video',
-                    color: const Color(0xFFEF4444),
-                    onTap: onVideo,
-                  ),
-                  _ComposerAction(
-                    icon: LucideIcons.film,
-                    label: 'Reel',
-                    color: t.accent,
-                    onTap: onReel,
-                  ),
-                ],
-              ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            child: Row(
+              children: [
+                _ComposerAction(
+                  icon: LucideIcons.image,
+                  label: 'Photo',
+                  color: const Color(0xFF22C55E),
+                  onTap: onPhoto,
+                ),
+                _ComposerAction(
+                  icon: LucideIcons.video,
+                  label: 'Video',
+                  color: const Color(0xFFEF4444),
+                  onTap: onVideo,
+                ),
+                _ComposerAction(
+                  icon: LucideIcons.film,
+                  label: 'Reel',
+                  color: t.accent,
+                  onTap: onReel,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          Divider(height: 1, thickness: 1, color: t.border),
+        ],
       ),
     );
   }
@@ -958,27 +952,35 @@ class _FeedAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
 
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: t.surfaceAlt,
-        image: url.isEmpty
-            ? null
-            : DecorationImage(
-                image: ResizeImage(NetworkImage(url), width: 120),
+      decoration: BoxDecoration(shape: BoxShape.circle, color: t.surfaceAlt),
+      clipBehavior: Clip.antiAlias,
+      child: ClipOval(
+        child: url.isEmpty
+            ? Center(
+                child: Text(
+                  initial,
+                  style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+                ),
+              )
+            : Image.network(
+                url,
+                width: size,
+                height: size,
                 fit: BoxFit.cover,
+                cacheWidth: 120,
+                errorBuilder: (_, __, ___) => Center(
+                  child: Text(
+                    initial,
+                    style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+                  ),
+                ),
               ),
       ),
-      alignment: Alignment.center,
-      child: url.isEmpty
-          ? Text(
-              name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-              style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
-            )
-          : null,
     );
   }
 }
@@ -1185,28 +1187,47 @@ class _StoryAvatar extends StatelessWidget {
               ],
             ),
             child: Container(
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFFE0F2FE),
-                image: url.isEmpty
-                    ? null
-                    : DecorationImage(
-                        image: ResizeImage(NetworkImage(url), width: 100),
+                color: Color(0xFFE0F2FE),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: ClipOval(
+                child: url.isEmpty
+                    ? Center(
+                        child: Text(
+                          name.isEmpty
+                              ? '?'
+                              : name.characters.first.toUpperCase(),
+                          style: const TextStyle(
+                            fontFamily: 'PlusJakartaSans',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0369A1),
+                          ),
+                        ),
+                      )
+                    : Image.network(
+                        url,
+                        width: 30,
+                        height: 30,
                         fit: BoxFit.cover,
+                        cacheWidth: 100,
+                        errorBuilder: (_, __, ___) => Center(
+                          child: Text(
+                            name.isEmpty
+                                ? '?'
+                                : name.characters.first.toUpperCase(),
+                            style: const TextStyle(
+                              fontFamily: 'PlusJakartaSans',
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0369A1),
+                            ),
+                          ),
+                        ),
                       ),
               ),
-              alignment: Alignment.center,
-              child: url.isEmpty
-                  ? Text(
-                      name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-                      style: const TextStyle(
-                        fontFamily: 'PlusJakartaSans',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0369A1),
-                      ),
-                    )
-                  : null,
             ),
           ),
           if (isAdd)

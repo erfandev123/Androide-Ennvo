@@ -18,13 +18,13 @@
 // ============================================================================
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/nav/page_type.dart';
 import '../../core/providers.dart';
@@ -146,6 +146,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
 
     // The 2x hold belongs to the reel that was on screen.
     _playback.setSpeed(1);
+    ref.read(reelsCleanModeProvider.notifier).state = false;
 
     if (index >= reels.length) return;
     final reel = reels[index];
@@ -306,6 +307,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     // The signed-in user, for the burst a like or a repost sends above the
     // name of the author.
     final viewer = ref.watch(authControllerProvider).user;
+    final cleanMode = ref.watch(reelsCleanModeProvider);
 
     return ColoredBox(
       color: Colors.black,
@@ -362,6 +364,10 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
                     if (index != _activeIndex || !mounted) return;
                     setState(() => _paused = paused);
                   },
+                  onCleanModeChanged: (active) {
+                    if (index != _activeIndex || !mounted) return;
+                    ref.read(reelsCleanModeProvider.notifier).state = active;
+                  },
                   onToggleLike: () {
                     HapticFeedback.lightImpact();
                     setState(() {
@@ -402,48 +408,43 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
           ),
 
           // --- the tabs ----------------------------------------------
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _TopTabs(
-              active: _tab,
-              onChanged: (value) => setState(() => _tab = value),
+          if (!cleanMode)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _TopTabs(
+                active: _tab,
+                onChanged: (value) => setState(() => _tab = value),
+              ),
             ),
-          ),
 
           // --- the search button --------------------------------------
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 10,
-            right: 6,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => ref.read(navControllerProvider).pushPage(AppPage.search),
-              child: const Padding(
-                padding: EdgeInsets.all(10),
-                child: LucideIcon(
-                  LucideIcons.search,
-                  size: 24,
-                  strokeWidth: 2.2,
-                  color: Colors.white,
+          if (!cleanMode)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 10,
+              right: 6,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () =>
+                    ref.read(navControllerProvider).pushPage(AppPage.search),
+                child: const Padding(
+                  padding: EdgeInsets.all(10),
+                  child: LucideIcon(
+                    LucideIcons.search,
+                    size: 24,
+                    strokeWidth: 2.2,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
-          ),
 
           // --- the timeline -------------------------------------------
-          // It sits right on top of the floating navigation bar, and it
-          // moves on its own: the feed is never rebuilt while a video plays.
-          //
-          // It only shows while the reel is stopped, and it can be dragged:
-          // the reel follows the finger.
-          if (_paused)
+          if (_paused && !cleanMode)
             Positioned(
               left: navStyle == 'classic' ? 0 : 18,
               right: navStyle == 'classic' ? 0 : 18,
-              // Classic: the bar is flush with the bottom of the screen, so
-              // the timeline is flush on top of it, with no air between the
-              // two. Glass: the pill floats, and the timeline sits above it.
               bottom: navStyle == 'classic'
                   ? AppSizes.navTopFor(navStyle, safeBottom) - 7
                   : AppSizes.navTopFor(navStyle, safeBottom) + 4,
@@ -454,7 +455,7 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
             ),
 
           // --- the PC up / down controller ----------------------------
-          if (MediaQuery.sizeOf(context).width >= 900)
+          if (MediaQuery.sizeOf(context).width >= 900 && !cleanMode)
             Positioned(
               right: 20,
               top: 0,
@@ -573,15 +574,17 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     ReelComment? replyTo,
   ) async {
     String? url;
-    try {
-      final uploaded = await UploadService.uploadFile(
-        file: File(path),
-        folder: 'voice',
-        contentType: 'audio/mp4',
-      );
-      url = uploaded.url;
-    } catch (_) {
-      url = null;
+    if (!kIsWeb) {
+      try {
+        final uploaded = await UploadService.uploadXFile(
+          file: XFile(path),
+          folder: 'voice',
+          contentType: 'audio/mp4',
+        );
+        url = uploaded.url;
+      } catch (_) {
+        url = null;
+      }
     }
 
     await _writeComment(
@@ -597,15 +600,14 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   /// Attaches a picture and shows it at once.
   Future<void> _addPhotoComment(
     AppPost post,
-    File file,
+    XFile file,
     ReelComment? replyTo,
   ) async {
     String? url;
     try {
-      final uploaded = await UploadService.uploadFile(
+      final uploaded = await UploadService.uploadXFile(
         file: file,
         folder: 'comments',
-        contentType: 'image/jpeg',
       );
       url = uploaded.url;
     } catch (_) {
@@ -745,29 +747,31 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
     final conversations = ref.read(conversationsProvider).value ?? const <Conversation>[];
 
     final targets = <ShareTarget>[];
+    final seenPeerIds = <String>{};
+    final friendByTargetId = <String, AppUser>{};
+    final myUid = user?.uid ?? '';
+
     for (final conversation in conversations) {
-      final otherId = conversation.participantIds.firstWhere(
-        (id) => id != user?.uid,
-        orElse: () => '',
-      );
-      final name = conversation.groupName ??
-          conversation.participantNames[otherId] ??
-          'Someone';
-      final avatar = conversation.groupAvatar ??
-          conversation.participantAvatars[otherId] ??
-          '';
+      final otherId = conversation.otherParticipantId(myUid) ?? '';
+      if (otherId.isNotEmpty) seenPeerIds.add(otherId);
+      final name = conversation.displayName(myUid);
+      final avatar = conversation.displayAvatar(myUid);
       targets.add(
         ShareTarget(id: conversation.id, name: name, avatarUrl: avatar),
       );
     }
 
-    // Every friend of the account is a share target. The web app merges
-    // the conversations with the people the user follows.
+    // Merge followed friends without duplicating existing 1:1 chats.
     final friends = ref.read(followingProvider).value ?? const [];
     for (final friend in friends) {
-      final ids = [user?.uid ?? '', friend.uid]..sort();
-      final conversationId = 'dm_${ids.join('_')}';
+      if (friend.uid.isEmpty ||
+          friend.uid == myUid ||
+          seenPeerIds.contains(friend.uid)) {
+        continue;
+      }
+      final conversationId = Conversation.directId(myUid, friend.uid);
       if (!targets.any((target) => target.id == conversationId)) {
+        friendByTargetId[conversationId] = friend;
         targets.add(
           ShareTarget(
             id: conversationId,
@@ -794,7 +798,13 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
         isOwner: user?.uid != null && user!.uid == post.authorId,
         hasReposted: _reposted.contains(post.id),
         onSend: (selected, message) async {
-          await _sendReel(post, selected, user?.uid ?? '', message);
+          await _sendReel(
+            post,
+            selected,
+            user,
+            message,
+            friendByTargetId: friendByTargetId,
+          );
         },
         onRepost: () {
           HapticFeedback.lightImpact();
@@ -848,19 +858,35 @@ class _ReelsPageState extends ConsumerState<ReelsPage>
   Future<void> _sendReel(
     AppPost post,
     List<ShareTarget> selected,
-    String senderId,
-    String message,
-  ) async {
+    AppUser? sender,
+    String message, {
+    Map<String, AppUser> friendByTargetId = const {},
+  }) async {
+    final senderId = sender?.uid ?? '';
+    if (senderId.isEmpty) return;
     final media = post.media.isNotEmpty ? post.media.first : null;
     for (final target in selected) {
+      var conversationId = target.id;
+      final friend = friendByTargetId[target.id];
+      if (friend != null) {
+        conversationId = await ChatService.createConversation(
+          currentUserId: senderId,
+          otherUserId: friend.uid,
+          otherUserName: friend.name,
+          otherUserAvatar: friend.avatar,
+          currentUserName: sender?.name ?? 'You',
+          currentUserAvatar: sender?.avatar ?? '',
+        );
+      }
       await ChatService.sendMessage(
-        conversationId: target.id,
+        conversationId: conversationId,
         messageId: 'local-${DateTime.now().microsecondsSinceEpoch}',
         senderId: senderId,
         type: MessageType.reel,
         content: message.isEmpty ? 'Shared a reel' : message,
         mediaUrl: media,
         postId: post.id,
+        recipientId: friend?.uid,
       );
     }
   }

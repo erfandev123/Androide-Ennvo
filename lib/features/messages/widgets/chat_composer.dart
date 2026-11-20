@@ -8,8 +8,8 @@
 // ============================================================================
 
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -161,9 +161,10 @@ class _ChatComposerState extends State<ChatComposer> {
     setState(() => _uploadingMedia = true);
     String url = '';
     try {
-      final result = await UploadService.uploadFile(
-        file: File(picked.path),
+      final result = await UploadService.uploadXFile(
+        file: picked,
         folder: 'chat',
+        contentType: kind == 'video' ? 'video/mp4' : null,
       );
       url = result.url;
     } catch (_) {
@@ -189,6 +190,15 @@ class _ChatComposerState extends State<ChatComposer> {
       _showAttachMenu = false;
       _showStickerTray = false;
     });
+    if (kIsWeb) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Voice notes are supported on mobile devices.'),
+        ),
+      );
+      return;
+    }
     final started = await _recorder.start();
     if (!started) {
       if (!mounted) return;
@@ -233,9 +243,10 @@ class _ChatComposerState extends State<ChatComposer> {
     setState(() => _uploadingMedia = true);
     String url = '';
     try {
-      final result = await UploadService.uploadFile(
-        file: File(path),
+      final result = await UploadService.uploadXFile(
+        file: XFile(path),
         folder: 'voice',
+        contentType: 'audio/mp4',
       );
       url = result.url;
     } catch (_) {
@@ -326,7 +337,7 @@ class _ChatComposerState extends State<ChatComposer> {
           AnimatedContainer(
             duration: const Duration(milliseconds: 140),
             constraints: const BoxConstraints(minHeight: 50),
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
             decoration: BoxDecoration(
               color: focused ? Colors.white : const Color(0xFFF0F2F5),
               borderRadius: BorderRadius.circular(26),
@@ -334,7 +345,7 @@ class _ChatComposerState extends State<ChatComposer> {
                 color: focused
                     ? const Color(0xFF0EA5E9)
                     : const Color(0xFFE2E8F0),
-                width: focused ? 1.5 : 1.0,
+                width: focused ? 1.6 : 1.0,
               ),
             ),
             child: Row(
@@ -369,7 +380,7 @@ class _ChatComposerState extends State<ChatComposer> {
                   child: _recording
                       ? _RecordingBar(seconds: _recordingSeconds)
                       : ConstrainedBox(
-                          constraints: const BoxConstraints(minHeight: 38),
+                          constraints: const BoxConstraints(minHeight: 40),
                           child: TextField(
                             controller: _controller,
                             focusNode: _focus,
@@ -394,7 +405,7 @@ class _ChatComposerState extends State<ChatComposer> {
                               focusedBorder: InputBorder.none,
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 10,
-                                vertical: 10,
+                                vertical: 11,
                               ),
                               isDense: true,
                             ),

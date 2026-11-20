@@ -28,6 +28,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 
 /// How an upload is going.
 typedef UploadProgress = void Function(int sent, int total);
@@ -91,6 +92,27 @@ class UploadService {
   // ---------------------------------------------------------------------
   //  The uploads
   // ---------------------------------------------------------------------
+
+  /// Uploads a cross-platform [XFile] (Web + Android + iOS).
+  static Future<UploadResult> uploadXFile({
+    required XFile file,
+    required String folder,
+    String? contentType,
+    UploadProgress? onProgress,
+  }) async {
+    final bytes = await file.readAsBytes();
+    final rawName = file.name.isNotEmpty ? file.name : file.path;
+    final extension = _extensionOf(rawName);
+    final key = '$folder/${DateTime.now().millisecondsSinceEpoch}'
+        '-${_randomId()}.$extension';
+
+    return uploadBytes(
+      bytes: bytes,
+      key: key,
+      contentType: contentType ?? _contentTypeOf(extension),
+      onProgress: onProgress,
+    );
+  }
 
   /// Uploads a file of the device.
   ///

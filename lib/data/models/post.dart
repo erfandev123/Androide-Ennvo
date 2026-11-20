@@ -42,6 +42,7 @@ class AppPost {
     this.status,
     this.location,
     this.taggedUsers = const [],
+    this.background,
     this.mediaTypes = const [],
   });
 
@@ -75,6 +76,7 @@ class AppPost {
   final String? status;
   final String? location;
   final List<String> taggedUsers;
+  final String? background;
 
   /// The type of every media item — `video` or `image`.
   ///
@@ -189,6 +191,7 @@ class AppPost {
       status: data['status'] as String?,
       location: data['location'] as String?,
       taggedUsers: parseStringList(data['taggedUsers']),
+      background: data['background'] as String?,
       mediaTypes: [
         for (final detail in (data['mediaDetails'] as List?) ?? const [])
           if (detail is Map && detail['type'] is String)

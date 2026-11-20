@@ -60,6 +60,11 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     final unreadActivity = notifications.where((item) => !item.isRead).length;
     final latestActivity = _latestActivitySummary(notifications);
 
+    final friendMap = <String, AppUser>{
+      for (final p in [...following, ...followers])
+        if (p.uid.isNotEmpty) p.uid: p,
+    };
+
     final friends = _friendsOf(conversations, following, followers, uid);
     final isWide = _isWide(context);
 
@@ -101,6 +106,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
       currentUserId: uid,
       stories: stories,
       friends: friends,
+      friendMap: friendMap,
       unreadActivity: unreadActivity,
       latestActivityText: latestActivity,
       onActivity: () {
@@ -110,7 +116,8 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
           ),
         );
       },
-      onOpen: (id) => _openConversation(id, _nameOf(conversations, id, uid)),
+      onOpen: (id) =>
+          _openConversation(id, _nameOf(conversations, friendMap, id, uid)),
       onOpenFriend: _openFriend,
       onCreateStory: () =>
           ref.read(navControllerProvider).pushPage(AppPage.create),
@@ -120,7 +127,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
         ? null
         : _ChatPane(
             conversationId: _activeConversationId!,
-            title: _nameOf(conversations, _activeConversationId!, uid),
+            title: _nameOf(conversations, friendMap, _activeConversationId!, uid),
             onBack: () => setState(() => _activeConversationId = null),
           );
 
@@ -174,6 +181,11 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
   static bool _isWide(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= 768;
 
+  static bool _needsName(String? value) {
+    final s = value?.trim() ?? '';
+    return s.isEmpty || s == 'Unknown' || s == 'Someone' || s == 'Ennvo User';
+  }
+
   static List<AppUser> _friendsOf(
     List<Conversation> conversations,
     List<AppUser> following,
@@ -183,16 +195,25 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     final friends = <String, AppUser>{};
     for (final person in [...following, ...followers]) {
       if (person.uid.isNotEmpty && person.uid != uid) {
-        friends.putIfAbsent(person.uid, () => person);
+        final existing = friends[person.uid];
+        if (existing == null ||
+            (_needsName(existing.name) && !_needsName(person.name)) ||
+            (existing.avatar.isEmpty && person.avatar.isNotEmpty)) {
+          friends[person.uid] = person;
+        }
       }
     }
     for (final conversation in conversations) {
-      if (conversation.groupName?.isNotEmpty == true) continue;
+      if (conversation.isGroup || conversation.groupName?.isNotEmpty == true) {
+        continue;
+      }
       for (final id in conversation.participantIds) {
         if (id.isEmpty || id == uid || friends.containsKey(id)) continue;
+        final rawName = conversation.participantNames[id];
+        final resolvedName = _needsName(rawName) ? 'Ennvo User' : rawName!;
         friends[id] = AppUser(
           uid: id,
-          name: conversation.participantNames[id] ?? 'Friend',
+          name: resolvedName,
           username: '',
           email: '',
           avatar: conversation.participantAvatars[id] ?? '',
@@ -210,11 +231,15 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
 
   static String _nameOf(
     List<Conversation> conversations,
+    Map<String, AppUser> friendMap,
     String id,
     String currentUid,
   ) {
     for (final conversation in conversations) {
       if (conversation.id == id) {
+        final otherId = conversation.otherParticipantId(currentUid) ?? '';
+        final friend = friendMap[otherId];
+        if (friend != null && !_needsName(friend.name)) return friend.name;
         final name = conversation.displayName(currentUid);
         return name.isEmpty ? 'Chat' : name;
       }
@@ -630,21 +655,43 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
 
     String otherId = '';
     if (conversation != null) {
-      for (final id in conversation.participantIds) {
-        if (id != uid) {
-          otherId = id;
-          break;
-        }
+      otherId = conversation.otherParticipantId(uid) ?? '';
+    }
+
+    final following = ref.watch(followingProvider).value ?? const <AppUser>[];
+    final followers = ref.watch(followersProvider).value ?? const <AppUser>[];
+    AppUser? cachedFriend;
+    for (final p in [...following, ...followers]) {
+      if (p.uid == otherId) {
+        cachedFriend = p;
+        break;
       }
     }
 
-    final name = conversation == null
+    final rawName = conversation == null
         ? widget.title
         : (conversation.participantNames[otherId] ??
-            conversation.displayName(uid));
-    final avatar = conversation == null
+              conversation.displayName(uid));
+    final rawAvatar = conversation == null
         ? ''
         : (conversation.participantAvatars[otherId] ?? '');
+
+    final needsLookup = otherId.isNotEmpty &&
+        otherId != 'me' &&
+        (_MessagesPageState._needsName(rawName) || rawAvatar.isEmpty);
+    final lookedUpUser = needsLookup && cachedFriend == null
+        ? ref.watch(userProfileProvider(otherId)).value
+        : null;
+    final resolvedPeer = cachedFriend ?? lookedUpUser;
+
+    final name = !_MessagesPageState._needsName(rawName)
+        ? rawName
+        : (resolvedPeer != null && !_MessagesPageState._needsName(resolvedPeer.name)
+              ? resolvedPeer.name
+              : (widget.title.isEmpty ? 'Chat' : widget.title));
+    final avatar = rawAvatar.isNotEmpty
+        ? rawAvatar
+        : (resolvedPeer?.avatar ?? '');
 
     final online = otherId.isEmpty
         ? false
@@ -790,11 +837,20 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                     )
                   : ListView.builder(
                       reverse: true,
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
                       itemCount: messages.length +
+                          (typing ? 1 : 0) +
                           (_hasMoreOlder && live.length >= 40 ? 1 : 0),
                       itemBuilder: (context, index) {
-                        if (index == messages.length) {
+                        var msgIndex = index;
+                        if (typing) {
+                          if (index == 0) {
+                            return _TypingBubble(name: name, avatarUrl: avatar);
+                          }
+                          msgIndex = index - 1;
+                        }
+
+                        if (msgIndex == messages.length) {
                           return Padding(
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             child: Center(
@@ -815,12 +871,13 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                           );
                         }
 
-                        final message = messages[messages.length - 1 - index];
-                        final previous = index + 1 < messages.length
-                            ? messages[messages.length - 2 - index]
+                        final message =
+                            messages[messages.length - 1 - msgIndex];
+                        final previous = msgIndex + 1 < messages.length
+                            ? messages[messages.length - 2 - msgIndex]
                             : null;
-                        final next = index > 0
-                            ? messages[messages.length - index]
+                        final next = msgIndex > 0
+                            ? messages[messages.length - msgIndex]
                             : null;
 
                         final isMine = message.senderId == uid;
@@ -840,17 +897,49 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                         final sameAsNext = next != null &&
                             next.senderId == message.senderId &&
                             _withinAMinute(message, next);
+                        final showDateChip = previous == null
+                            ? message.createdAt != null
+                            : !_sameDay(previous.createdAt, message.createdAt);
+                        final showReceipt = isMine && msgIndex == 0;
 
-                        return ChatBubble(
-                          message: message,
-                          isMine: isMine,
-                          isFirstInGroup: !sameAsPrevious,
-                          isLastInGroup: !sameAsNext,
-                          avatarUrl: avatar,
-                          replyPreview: replyPreview,
-                          onReply: () => setState(() => _replyTo = message),
-                          onLongPress: () =>
-                              _openMessageActions(message, isMine),
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (showDateChip && message.createdAt != null)
+                              _DateChip(date: message.createdAt!),
+                            ChatBubble(
+                              message: message,
+                              isMine: isMine,
+                              isFirstInGroup: !sameAsPrevious,
+                              isLastInGroup: !sameAsNext,
+                              avatarUrl: avatar,
+                              replyPreview: replyPreview,
+                              onReply: () => setState(() => _replyTo = message),
+                              onLongPress: () =>
+                                  _openMessageActions(message, isMine),
+                            ),
+                            if (showReceipt)
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  right: 4,
+                                  bottom: 4,
+                                ),
+                                child: Text(
+                                  switch (message.status) {
+                                    MessageStatus.sending => 'Sending...',
+                                    MessageStatus.delivered => 'Delivered',
+                                    MessageStatus.seen => 'Seen',
+                                    _ => 'Sent',
+                                  },
+                                  textAlign: TextAlign.right,
+                                  style: EnnvoText.tiny.copyWith(
+                                    color: const Color(0xFF94A3B8),
+                                    fontSize: 10.5,
+                                  ),
+                                ),
+                              ),
+                          ],
                         );
                       },
                     ),
@@ -910,6 +999,84 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
     if (ta == null || tb == null) return false;
     return ta.difference(tb).inSeconds.abs() < 60;
   }
+
+  static bool _sameDay(DateTime? a, DateTime? b) {
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+}
+
+class _DateChip extends StatelessWidget {
+  const _DateChip({required this.date});
+
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(date.year, date.month, date.day);
+    final diff = today.difference(day).inDays;
+    final label = switch (diff) {
+      0 => 'Today',
+      1 => 'Yesterday',
+      _ => '${date.day}/${date.month}/${date.year}',
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Text(
+            label,
+            style: EnnvoText.tiny.copyWith(
+              color: const Color(0xFF64748B),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble({required this.name, required this.avatarUrl});
+
+  final String name;
+  final String avatarUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 8),
+      child: Row(
+        children: [
+          _PersonAvatar(name: name, url: avatarUrl, size: 26),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F4F7),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              'Typing...',
+              style: EnnvoText.caption.copyWith(
+                color: const Color(0xFF64748B),
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _HeaderIcon extends StatelessWidget {
@@ -955,6 +1122,7 @@ class _ConversationList extends StatefulWidget {
     required this.currentUserId,
     required this.stories,
     required this.friends,
+    required this.friendMap,
     required this.unreadActivity,
     required this.latestActivityText,
     required this.onActivity,
@@ -967,6 +1135,7 @@ class _ConversationList extends StatefulWidget {
   final String currentUserId;
   final List<Story> stories;
   final List<AppUser> friends;
+  final Map<String, AppUser> friendMap;
   final int unreadActivity;
   final String latestActivityText;
   final VoidCallback onActivity;
@@ -1192,11 +1361,19 @@ class _ConversationListState extends State<_ConversationList> {
                             );
                           }
                           final story = _inboxStories()[index - 1];
+                          final storyAuthor = widget.friendMap[story.authorId];
+                          final storyName = !_MessagesPageState._needsName(story.authorName)
+                              ? story.authorName
+                              : (storyAuthor != null &&
+                                        !_MessagesPageState._needsName(storyAuthor.name)
+                                    ? storyAuthor.name
+                                    : 'Story');
+                          final storyAvatar = story.authorAvatar.isNotEmpty
+                              ? story.authorAvatar
+                              : (storyAuthor?.avatar ?? '');
                           return _StoryTile(
-                            name: story.authorName.isEmpty
-                                ? 'Story'
-                                : story.authorName,
-                            avatarUrl: story.authorAvatar,
+                            name: storyName,
+                            avatarUrl: storyAvatar,
                             viewed:
                                 story.viewers.contains(widget.currentUserId),
                             onTap: () => _openStory(context, index - 1),
@@ -1354,6 +1531,7 @@ class _ConversationListState extends State<_ConversationList> {
                       _ConversationRow(
                         conversation: conversation,
                         currentUserId: widget.currentUserId,
+                        friendMap: widget.friendMap,
                         onTap: () => widget.onOpen(conversation.id),
                       ),
 
@@ -1434,15 +1612,30 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _FriendRow extends StatelessWidget {
+class _FriendRow extends ConsumerWidget {
   const _FriendRow({required this.friend, required this.onTap});
 
   final AppUser friend;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final t = context.tokens;
+    final needsLookup = friend.uid.isNotEmpty &&
+        friend.uid != 'me' &&
+        (_MessagesPageState._needsName(friend.name) || friend.avatar.isEmpty);
+    final profile = needsLookup
+        ? ref.watch(userProfileProvider(friend.uid)).value
+        : null;
+    final name = !_MessagesPageState._needsName(friend.name)
+        ? friend.name
+        : (profile != null && !_MessagesPageState._needsName(profile.name)
+              ? profile.name
+              : 'Ennvo User');
+    final avatar = friend.avatar.isNotEmpty
+        ? friend.avatar
+        : (profile?.avatar ?? '');
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -1451,8 +1644,8 @@ class _FriendRow extends StatelessWidget {
         child: Row(
           children: [
             _PersonAvatar(
-              name: friend.name,
-              url: friend.avatar,
+              name: name,
+              url: avatar,
               size: 46,
             ),
             const SizedBox(width: 12),
@@ -1461,7 +1654,7 @@ class _FriendRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    friend.name.isEmpty ? 'Friend' : friend.name,
+                    name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: EnnvoText.bodySemi.copyWith(
@@ -1503,15 +1696,30 @@ class _FriendRow extends StatelessWidget {
   }
 }
 
-class _FriendTile extends StatelessWidget {
+class _FriendTile extends ConsumerWidget {
   const _FriendTile({required this.friend, required this.onTap});
 
   final AppUser friend;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final t = context.tokens;
+    final needsLookup = friend.uid.isNotEmpty &&
+        friend.uid != 'me' &&
+        (_MessagesPageState._needsName(friend.name) || friend.avatar.isEmpty);
+    final profile = needsLookup
+        ? ref.watch(userProfileProvider(friend.uid)).value
+        : null;
+    final fullName = !_MessagesPageState._needsName(friend.name)
+        ? friend.name
+        : (profile != null && !_MessagesPageState._needsName(profile.name)
+              ? profile.name
+              : 'Ennvo User');
+    final avatar = friend.avatar.isNotEmpty
+        ? friend.avatar
+        : (profile?.avatar ?? '');
+
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -1519,10 +1727,10 @@ class _FriendTile extends StatelessWidget {
         width: 64,
         child: Column(
           children: [
-            _PersonAvatar(name: friend.name, url: friend.avatar, size: 56),
+            _PersonAvatar(name: fullName, url: avatar, size: 56),
             const SizedBox(height: 6),
             Text(
-              friend.name.isEmpty ? 'Friend' : friend.name.split(' ').first,
+              fullName.split(' ').first,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
@@ -1551,31 +1759,34 @@ class _PersonAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final fallback = Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: const Color(0xFFE0F2FE),
-        image: url.isEmpty
-            ? null
-            : DecorationImage(
-                image: ResizeImage(NetworkImage(url), width: 140),
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.medium,
-              ),
-      ),
+      color: const Color(0xFFE0F2FE),
       alignment: Alignment.center,
-      child: url.isEmpty
-          ? Text(
-              name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-              style: EnnvoText.bodySemi.copyWith(
-                fontSize: size * 0.36,
-                color: const Color(0xFF0369A1),
-                fontWeight: FontWeight.w700,
-              ),
-            )
-          : null,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: EnnvoText.bodySemi.copyWith(
+          fontSize: size * 0.36,
+          color: const Color(0xFF0369A1),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+
+    if (url.isEmpty) return ClipOval(child: fallback);
+    return ClipOval(
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          cacheWidth: 160,
+          filterQuality: FilterQuality.medium,
+          errorBuilder: (_, __, ___) => fallback,
+        ),
+      ),
     );
   }
 }
@@ -1583,32 +1794,49 @@ class _PersonAvatar extends StatelessWidget {
 // ============================================================================
 //  One conversation row
 // ============================================================================
-class _ConversationRow extends StatelessWidget {
+class _ConversationRow extends ConsumerWidget {
   const _ConversationRow({
     required this.conversation,
     required this.currentUserId,
+    required this.friendMap,
     required this.onTap,
   });
 
   final Conversation conversation;
   final String currentUserId;
+  final Map<String, AppUser> friendMap;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final t = context.tokens;
-    final name = conversation.displayName(currentUserId);
+    final otherId = conversation.otherParticipantId(currentUserId) ?? '';
+    final friend = friendMap[otherId];
+    final rawName = conversation.displayName(currentUserId);
+    final rawAvatar = conversation.displayAvatar(currentUserId);
+
+    final needsLookup = !conversation.isGroup &&
+        otherId.isNotEmpty &&
+        otherId != 'me' &&
+        friend == null &&
+        (_MessagesPageState._needsName(rawName) || rawAvatar.isEmpty);
+    final profile = needsLookup
+        ? ref.watch(userProfileProvider(otherId)).value
+        : null;
+    final resolvedPeer = friend ?? profile;
+
+    final name = !_MessagesPageState._needsName(rawName)
+        ? rawName
+        : (resolvedPeer != null &&
+                  !_MessagesPageState._needsName(resolvedPeer.name)
+              ? resolvedPeer.name
+              : 'Ennvo User');
+    final avatar = rawAvatar.isNotEmpty
+        ? rawAvatar
+        : (resolvedPeer?.avatar ?? '');
+
     final unread = conversation.unreadFor(currentUserId);
     final isUnread = unread > 0;
-
-    String otherId = '';
-    for (final id in conversation.participantIds) {
-      if (id != currentUserId) {
-        otherId = id;
-        break;
-      }
-    }
-    final avatar = conversation.participantAvatars[otherId] ?? '';
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -1666,8 +1894,8 @@ class _ConversationRow extends StatelessWidget {
                     style: EnnvoText.caption.copyWith(
                       color: isUnread
                           ? (t.isDark
-                              ? Colors.white
-                              : const Color(0xFF111827))
+                                ? Colors.white
+                                : const Color(0xFF111827))
                           : const Color(0xFFA3A3A3),
                       fontSize: 13,
                       fontWeight: isUnread ? FontWeight.w600 : FontWeight.w400,
@@ -1747,6 +1975,14 @@ class _StoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final innerFallback = Container(
+      color: t.isDark ? const Color(0xFF0A0A0A) : Colors.white,
+      alignment: Alignment.center,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: EnnvoText.titleMd.copyWith(color: t.textSecondary),
+      ),
+    );
 
     return Padding(
       padding: const EdgeInsets.only(right: 12),
@@ -1778,44 +2014,28 @@ class _StoryTile extends StatelessWidget {
                                 ],
                               )
                             : (viewed
-                                ? null
-                                : const LinearGradient(
-                                    colors: [
-                                      Color(0xFF38BDF8),
-                                      Color(0xFF3B82F6),
-                                      Color(0xFF4F46E5),
-                                    ],
-                                  )),
+                                  ? null
+                                  : const LinearGradient(
+                                      colors: [
+                                        Color(0xFF38BDF8),
+                                        Color(0xFF3B82F6),
+                                        Color(0xFF4F46E5),
+                                      ],
+                                    )),
                         color: viewed && !isCreate ? t.surfaceAlt : null,
                       ),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: t.isDark
-                              ? const Color(0xFF0A0A0A)
-                              : Colors.white,
-                          image: (avatarUrl.isNotEmpty && !isCreate)
-                              ? DecorationImage(
-                                  image: ResizeImage(
-                                    NetworkImage(avatarUrl),
-                                    width: 140,
-                                  ),
-                                  fit: BoxFit.cover,
-                                  filterQuality: FilterQuality.medium,
-                                )
-                              : null,
-                        ),
-                        alignment: Alignment.center,
+                      child: ClipOval(
                         child: (avatarUrl.isNotEmpty && !isCreate)
-                            ? null
-                            : Text(
-                                name.isEmpty
-                                    ? '?'
-                                    : name.characters.first.toUpperCase(),
-                                style: EnnvoText.titleMd.copyWith(
-                                  color: t.textSecondary,
-                                ),
-                              ),
+                            ? Image.network(
+                                avatarUrl,
+                                width: 66,
+                                height: 66,
+                                fit: BoxFit.cover,
+                                cacheWidth: 160,
+                                filterQuality: FilterQuality.medium,
+                                errorBuilder: (_, __, ___) => innerFallback,
+                              )
+                            : innerFallback,
                       ),
                     ),
                     if (isCreate)

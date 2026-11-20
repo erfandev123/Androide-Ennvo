@@ -54,11 +54,14 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget build(BuildContext context) {
     final nav = ref.watch(navControllerProvider);
     final visited = nav.visitedPages;
-    // The navigation bar steps aside while the keyboard is up — it would
-    // otherwise float on top of the composer.
+    final reelsCleanMode = ref.watch(reelsCleanModeProvider);
+    // The navigation bar steps aside while the keyboard is up or while
+    // holding the right edge of a reel in 2x cinema mode.
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     final showNav =
-        _withBottomNav.contains(nav.currentPage) && !keyboardOpen;
+        _withBottomNav.contains(nav.currentPage) &&
+        !keyboardOpen &&
+        !(nav.currentPage == AppPage.home && reelsCleanMode);
 
     // The buttons of the phone — back, home and the square — are painted in
     // the colour of the page that is on screen: black under the reels, the
@@ -119,6 +122,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   /// Handles a tap on a navigation destination.
   void _onSelectTab(AppPage page) {
+    ref.read(reelsCleanModeProvider.notifier).state = false;
     ref.read(navControllerProvider).setCurrentPage(page);
   }
 

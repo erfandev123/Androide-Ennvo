@@ -386,6 +386,13 @@ class _ViewerAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final fallback = Text(
+      name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+      style: EnnvoText.bodySemi.copyWith(
+        color: Colors.white,
+        fontSize: 13,
+      ),
+    );
     return Container(
       width: 36,
       height: 36,
@@ -393,23 +400,19 @@ class _ViewerAvatar extends StatelessWidget {
         shape: BoxShape.circle,
         color: const Color(0xFF1E293B),
         border: Border.all(color: Colors.white, width: 1.5),
-        image: url.isEmpty
-            ? null
-            : DecorationImage(
-                image: ResizeImage(NetworkImage(url), width: 120),
-                fit: BoxFit.cover,
-              ),
       ),
       alignment: Alignment.center,
       child: url.isEmpty
-          ? Text(
-              name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-              style: EnnvoText.bodySemi.copyWith(
-                color: Colors.white,
-                fontSize: 13,
+          ? fallback
+          : ClipOval(
+              child: Image.network(
+                url,
+                width: 33,
+                height: 33,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback,
               ),
-            )
-          : null,
+            ),
     );
   }
 }

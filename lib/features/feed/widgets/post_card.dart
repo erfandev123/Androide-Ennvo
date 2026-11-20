@@ -41,9 +41,12 @@ class PostCard extends StatefulWidget {
     required this.isLiked,
     required this.isReposted,
     required this.likesCount,
+    this.isSaved = false,
+    this.favoritesCount = 0,
     this.isLite = false,
     this.onToggleLike,
     this.onToggleRepost,
+    this.onToggleSave,
     this.onOpenProfile,
     this.onComment,
     this.onShare,
@@ -53,9 +56,12 @@ class PostCard extends StatefulWidget {
   final bool isLiked;
   final bool isReposted;
   final int likesCount;
+  final bool isSaved;
+  final int favoritesCount;
   final bool isLite;
   final VoidCallback? onToggleLike;
   final VoidCallback? onToggleRepost;
+  final VoidCallback? onToggleSave;
   final VoidCallback? onOpenProfile;
   final VoidCallback? onComment;
   final VoidCallback? onShare;
@@ -102,29 +108,14 @@ class _PostCardState extends State<PostCard> {
     final t = context.tokens;
     final post = widget.post;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: t.surface,
-        borderRadius: BorderRadius.circular(AppRadius.xl),
-        border: Border.all(color: t.border),
-        boxShadow: (t.isDark || widget.isLite)
-            ? null
-            : const [
-                BoxShadow(
-                  color: Color(0x0A0F172A),
-                  blurRadius: 14,
-                  offset: Offset(0, 4),
-                ),
-              ],
-      ),
-      clipBehavior: Clip.antiAlias,
+    return ColoredBox(
+      color: t.background,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // --- author row ------------------------------------------------
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 8, 10),
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
             child: Row(
               children: [
                 GestureDetector(
@@ -202,7 +193,7 @@ class _PostCardState extends State<PostCard> {
           // --- media, or the big text of a text-only post ---------------
           if (post.media.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(5, 0, 5, 2),
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 2),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _handleDoubleTap,
@@ -263,7 +254,7 @@ class _PostCardState extends State<PostCard> {
             )
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(5, 2, 5, 2),
+              padding: const EdgeInsets.fromLTRB(14, 2, 14, 2),
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _handleDoubleTap,
@@ -300,10 +291,11 @@ class _PostCardState extends State<PostCard> {
               ),
             ),
 
-          // --- action row -----------------------------------------------
+          // --- action row (Like, Comment, Favorite, Repost, Share) ------
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _ActionButton(
                   icon: IonIcon(
@@ -319,7 +311,6 @@ class _PostCardState extends State<PostCard> {
                   onTap: widget.onToggleLike,
                   semanticLabel: 'Like',
                 ),
-                const SizedBox(width: 22),
                 _ActionButton(
                   icon: IonIcon(
                     IonIcons.chatOutline,
@@ -330,7 +321,20 @@ class _PostCardState extends State<PostCard> {
                   onTap: widget.onComment,
                   semanticLabel: 'Comment',
                 ),
-                const SizedBox(width: 22),
+                _ActionButton(
+                  icon: IonIcon(
+                    widget.isSaved
+                        ? IonIcons.bookmarkFilled
+                        : IonIcons.bookmarkOutline,
+                    size: 20,
+                    color: widget.isSaved
+                        ? const Color(0xFFF59E0B)
+                        : t.textPrimary,
+                  ),
+                  count: widget.favoritesCount,
+                  onTap: widget.onToggleSave,
+                  semanticLabel: 'Save',
+                ),
                 _ActionButton(
                   icon: IonIcon(
                     IonIcons.repeatOutline,
@@ -343,28 +347,75 @@ class _PostCardState extends State<PostCard> {
                   onTap: widget.onToggleRepost,
                   semanticLabel: 'Repost',
                 ),
-                const SizedBox(width: 22),
                 _ActionButton(
                   icon: IonIcon(IonIcons.share, size: 21, color: t.textPrimary),
                   onTap: widget.onShare,
                   semanticLabel: 'Share',
                 ),
-                const Spacer(),
               ],
             ),
           ),
 
+          // --- location & tagged friends --------------------------------
+          if ((post.location?.trim().isNotEmpty ?? false) ||
+              post.taggedUsers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (post.location != null && post.location!.trim().isNotEmpty)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        LucideIcon(
+                          LucideIcons.mapPin,
+                          size: 13,
+                          color: t.accent,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          post.location!.trim(),
+                          style: EnnvoText.caption.copyWith(
+                            color: t.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  if (post.taggedUsers.isNotEmpty)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        LucideIcon(
+                          LucideIcons.userPlus,
+                          size: 13,
+                          color: t.accent,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'with ${post.taggedUsers.take(3).join(', ')}'
+                          '${post.taggedUsers.length > 3 ? ' +${post.taggedUsers.length - 3}' : ''}',
+                          style: EnnvoText.caption.copyWith(
+                            color: t.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+
           // --- song ------------------------------------------------------
-          // The name of the song travels in a pill under the post, the way
-          // the web app writes it. When the post only carries the id of the
-          // song, the name is looked up in the `songs` collection.
           _SongBlock(post: post),
 
           // --- caption ---------------------------------------------------
-          // A text-only post writes its words inside the big text card.
           if (post.media.isNotEmpty && post.text.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 2, 14, 14),
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -399,6 +450,9 @@ class _PostCardState extends State<PostCard> {
                 ],
               ),
             ),
+
+          const SizedBox(height: 4),
+          Divider(height: 1, thickness: 1, color: t.border),
         ],
       ),
     );
@@ -433,6 +487,8 @@ class _MediaGrid extends StatelessWidget {
 
   final AppPost post;
 
+  static const double _mediaRadius = 22;
+
   @override
   Widget build(BuildContext context) {
     final media = post.media;
@@ -444,7 +500,7 @@ class _MediaGrid extends StatelessWidget {
       return SizedBox(
         height: height,
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.postMedia),
+          borderRadius: BorderRadius.circular(_mediaRadius),
           child: videoUrl == null
               ? _MediaImage(
                   url: media.first,
@@ -464,9 +520,9 @@ class _MediaGrid extends StatelessWidget {
           children: [
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(left: 2, bottom: 2),
+                padding: const EdgeInsets.only(right: 3),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.postMedia),
+                  borderRadius: BorderRadius.circular(_mediaRadius),
                   child: _MediaImage(
                     url: media[0],
                     thumbnailUrl: post.thumbnailUrl,
@@ -476,9 +532,9 @@ class _MediaGrid extends StatelessWidget {
             ),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.only(left: 2, right: 2, bottom: 2),
+                padding: const EdgeInsets.only(left: 3),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.postMedia),
+                  borderRadius: BorderRadius.circular(_mediaRadius),
                   child: _MediaImage(
                     url: media[1],
                     thumbnailUrl: post.thumbnailUrl,
@@ -496,13 +552,12 @@ class _MediaGrid extends StatelessWidget {
         height: height,
         child: Row(
           children: [
-            // One large photo on the left.
             Expanded(
               flex: 3,
               child: Padding(
-                padding: const EdgeInsets.only(left: 2, bottom: 2),
+                padding: const EdgeInsets.only(right: 4),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppRadius.postMedia),
+                  borderRadius: BorderRadius.circular(_mediaRadius),
                   child: _MediaImage(
                     url: media[0],
                     thumbnailUrl: post.thumbnailUrl,
@@ -510,22 +565,15 @@ class _MediaGrid extends StatelessWidget {
                 ),
               ),
             ),
-            // Two stacked on the right.
             Expanded(
               flex: 2,
               child: Column(
                 children: [
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.only(
-                        left: 2,
-                        right: 2,
-                        bottom: 1,
-                      ),
+                      padding: const EdgeInsets.only(bottom: 2),
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                          AppRadius.postMedia,
-                        ),
+                        borderRadius: BorderRadius.circular(_mediaRadius),
                         child: _MediaImage(
                           url: media[1],
                           thumbnailUrl: post.thumbnailUrl,
@@ -535,15 +583,9 @@ class _MediaGrid extends StatelessWidget {
                   ),
                   Expanded(
                     child: Padding(
-                      padding: const EdgeInsets.only(
-                        left: 2,
-                        right: 2,
-                        bottom: 2,
-                      ),
+                      padding: const EdgeInsets.only(top: 2),
                       child: ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                          AppRadius.postMedia,
-                        ),
+                        borderRadius: BorderRadius.circular(_mediaRadius),
                         child: _MediaImage(
                           url: media[2],
                           thumbnailUrl: post.thumbnailUrl,
@@ -566,7 +608,7 @@ class _MediaGrid extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.postMedia),
+            borderRadius: BorderRadius.circular(_mediaRadius),
             child: _MediaImage(
               url: media.first,
               thumbnailUrl: post.thumbnailUrl,
@@ -646,9 +688,48 @@ class _BigTextCard extends StatelessWidget {
     [Color(0xFF0F172A), Color(0xFF1E3A8A), Color(0xFF0EA5E9)],
   ];
 
+  static const Map<String, List<Color>> _namedPalettes = {
+    'sky': [Color(0xFF2563EB), Color(0xFF4F46E5), Color(0xFF0EA5E9)],
+    'sunset': [Color(0xFFF59E0B), Color(0xFFF43F5E), Color(0xFF9333EA)],
+    'violet': [Color(0xFF7E22CE), Color(0xFF4F46E5), Color(0xFF2563EB)],
+    'cyan': [Color(0xFF06B6D4), Color(0xFF14B8A6), Color(0xFF2563EB)],
+    'rose': [Color(0xFFE11D48), Color(0xFFDB2777), Color(0xFF9333EA)],
+    'ocean': [Color(0xFF1D4ED8), Color(0xFF1E293B), Color(0xFF0F172A)],
+    'emerald': [Color(0xFF10B981), Color(0xFF0D9488), Color(0xFF0E7490)],
+    'fire': [Color(0xFFDC2626), Color(0xFFF97316), Color(0xFFF59E0B)],
+    'plum': [Color(0xFF0F172A), Color(0xFF2E1065), Color(0xFF312E81)],
+    'lavender': [Color(0xFFC026D3), Color(0xFF7C3AED), Color(0xFF4F46E5)],
+    'gold': [Color(0xFFFBBF24), Color(0xFFF97316), Color(0xFFE11D48)],
+    'dark': [Color(0xFF171717), Color(0xFF171717)],
+    'cobalt': [Color(0xFF2563EB), Color(0xFF2563EB)],
+  };
+
+  List<Color> _resolveColors() {
+    final bg = post.background?.trim() ?? '';
+    if (bg.isNotEmpty) {
+      if (_namedPalettes.containsKey(bg)) {
+        return _namedPalettes[bg]!;
+      }
+      for (final entry in AppGradients.bigTextBackgrounds.entries) {
+        if (entry.value == bg && _namedPalettes.containsKey(entry.key)) {
+          return _namedPalettes[entry.key]!;
+        }
+      }
+      final hexMatches = RegExp(r'#([0-9a-fA-F]{6})').allMatches(bg).toList();
+      if (hexMatches.isNotEmpty) {
+        final parsed = [
+          for (final m in hexMatches)
+            Color(int.parse('FF${m.group(1)!}', radix: 16)),
+        ];
+        return parsed.length == 1 ? [parsed.first, parsed.first] : parsed;
+      }
+    }
+    return _gradients[post.id.hashCode.abs() % _gradients.length];
+  }
+
   @override
   Widget build(BuildContext context) {
-    final colors = _gradients[post.id.hashCode.abs() % _gradients.length];
+    final colors = _resolveColors();
 
     return Container(
       width: double.infinity,
@@ -660,7 +741,7 @@ class _BigTextCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: colors,
         ),
-        borderRadius: BorderRadius.circular(AppRadius.postMedia),
+        borderRadius: BorderRadius.circular(22),
       ),
       alignment: Alignment.center,
       child: Text(
@@ -997,28 +1078,35 @@ class _Avatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
+    final initial = name.isEmpty ? '?' : name.characters.first.toUpperCase();
 
     return Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: t.surfaceAlt,
-        image: url.isEmpty
-            ? null
-            : DecorationImage(
-                image: ResizeImage(NetworkImage(url), width: 120),
+      decoration: BoxDecoration(shape: BoxShape.circle, color: t.surfaceAlt),
+      clipBehavior: Clip.antiAlias,
+      child: ClipOval(
+        child: url.isEmpty
+            ? Center(
+                child: Text(
+                  initial,
+                  style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+                ),
+              )
+            : Image.network(
+                url,
+                width: size,
+                height: size,
                 fit: BoxFit.cover,
+                cacheWidth: 120,
+                errorBuilder: (_, __, ___) => Center(
+                  child: Text(
+                    initial,
+                    style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
+                  ),
+                ),
               ),
       ),
-      child: url.isEmpty
-          ? Center(
-              child: Text(
-                name.isEmpty ? '?' : name.characters.first.toUpperCase(),
-                style: EnnvoText.bodySemi.copyWith(color: t.textSecondary),
-              ),
-            )
-          : null,
     );
   }
 }

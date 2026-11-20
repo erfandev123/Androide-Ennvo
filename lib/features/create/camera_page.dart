@@ -18,9 +18,9 @@
 // ============================================================================
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -52,6 +52,8 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
 
   /// The file that was shot or picked.
   XFile? _media;
+  Uint8List? _imageBytes;
+  bool _mediaIsVideo = false;
 
   bool _videoReady = false;
 
@@ -141,7 +143,15 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
     }
   }
 
-  bool get _isVideo => (_media?.path ?? '').toLowerCase().endsWith('.mp4');
+  bool get _isVideo {
+    if (_mediaIsVideo) return true;
+    final p = (_media?.path ?? '').toLowerCase();
+    final n = (_media?.name ?? '').toLowerCase();
+    return p.endsWith('.mp4') ||
+        p.endsWith('.mov') ||
+        n.endsWith('.mp4') ||
+        n.endsWith('.mov');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -442,9 +452,12 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
     setState(() => _busy = true);
     try {
       final photo = await controller.takePicture();
+      final bytes = await photo.readAsBytes();
       if (!mounted) return;
       setState(() {
         _media = photo;
+        _imageBytes = bytes;
+        _mediaIsVideo = false;
         _stage = 1;
         _busy = false;
         _muted = true;
@@ -487,6 +500,8 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _media = XFile(video.path);
+        _imageBytes = null;
+        _mediaIsVideo = true;
         _stage = 1;
         _videoReady = false;
         _muted = true;
@@ -505,6 +520,7 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
         source: ImageSource.gallery,
         maxDuration: const Duration(seconds: 90),
       );
+      final isVideo = picked != null;
       final XFile? chosen = picked ??
           await picker.pickImage(
             source: ImageSource.gallery,
@@ -512,8 +528,12 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
             imageQuality: 92,
           );
       if (chosen == null || !mounted) return;
+      final bytes = isVideo ? null : await chosen.readAsBytes();
+      if (!mounted) return;
       setState(() {
         _media = chosen;
+        _imageBytes = bytes;
+        _mediaIsVideo = isVideo;
         _stage = 1;
         _muted = true;
       });
@@ -529,9 +549,10 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
   Future<void> _openPreview() async {
     if (!_isVideo) return;
     final path = _media?.path;
-    if (path == null) return;
+    if (path == null || path.isEmpty) return;
 
-    final player = VideoPlayerController.file(File(path));
+    final uri = kIsWeb ? Uri.parse(path) : Uri.file(path);
+    final player = VideoPlayerController.networkUrl(uri);
     await player.initialize();
     await player.setLooping(true);
     await player.setVolume(0);
@@ -547,7 +568,6 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
   }
 
   Widget _buildEdit() {
-    final t = context.tokens;
     final path = _media?.path ?? '';
 
     return Stack(
@@ -563,11 +583,19 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
                     child: VideoPlayer(_previewPlayer!),
                   ),
                 )
-              : Image.file(
-                  File(path),
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const _EmptyStage(),
-                ),
+              : (_imageBytes != null
+                    ? Image.memory(
+                        _imageBytes!,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const _EmptyStage(),
+                      )
+                    : (kIsWeb && path.isNotEmpty
+                          ? Image.network(
+                              path,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => const _EmptyStage(),
+                            )
+                          : const _EmptyStage())),
         ),
 
         // --- the top bar ----------------------------------------------
@@ -714,6 +742,8 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
     _music = null;
     setState(() {
       _media = null;
+      _imageBytes = null;
+      _mediaIsVideo = false;
       _stage = 0;
     });
     if (_controller == null) _openCamera();
