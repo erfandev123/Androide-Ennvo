@@ -64,9 +64,10 @@ ProviderContainer _inboxContainer(AppPrefs prefs) {
           AppNotification(
             id: 'n1',
             type: NotificationType.like,
-            senderId: 'u-arif',
-            senderName: 'Arif Hasan',
-            senderAvatar: '',
+            actorId: 'u-arif',
+            actorName: 'Arif Hasan',
+            actorAvatar: '',
+            targetId: 'me',
             createdAt: now.subtract(const Duration(minutes: 4)),
             isRead: false,
           ),

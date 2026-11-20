@@ -167,16 +167,8 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
   static String _latestActivitySummary(List<AppNotification> items) {
     if (items.isEmpty) return 'Notifications & alerts';
     final latest = items.first;
-    final actor = latest.senderName.isEmpty ? 'Someone' : latest.senderName;
-    final verb = switch (latest.type) {
-      NotificationType.like => 'liked your post',
-      NotificationType.comment => 'commented on your post',
-      NotificationType.follow => 'started following you',
-      NotificationType.repost => 'reposted your post',
-      NotificationType.mention => 'mentioned you',
-      NotificationType.message => 'sent you a message',
-    };
-    return '$actor $verb';
+    final actor = latest.actorName.isEmpty ? 'Someone' : latest.actorName;
+    return '$actor ${latest.activityText}';
   }
 
   static bool _isWide(BuildContext context) =>
@@ -545,7 +537,7 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                       ChatService.reactToMessage(
                         conversationId: widget.conversationId,
                         messageId: message.id,
-                        emoji: message.reaction == emoji ? null : emoji,
+                        reaction: message.reaction == emoji ? null : emoji,
                       );
                     },
                     child: Container(

@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/theme/motion.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/message.dart';
 import '../../../shared/icons/lucide_icons.dart';
@@ -499,7 +500,7 @@ class _VideoBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final thumb = message.thumbnailUrl ?? '';
+    final thumb = message.mediaUrls.length > 1 ? message.mediaUrls[1] : '';
 
     return Stack(
       alignment: Alignment.center,
@@ -550,7 +551,8 @@ class _ReelBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final thumb = message.thumbnailUrl ?? message.mediaUrl ?? '';
+    final thumb = message.mediaUrl ??
+        (message.mediaUrls.isNotEmpty ? message.mediaUrls.first : '');
 
     return SizedBox(
       width: 136,

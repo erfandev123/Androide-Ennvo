@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/motion.dart';
+import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/message.dart';
 import '../../../data/services/upload_service.dart';
@@ -201,7 +202,7 @@ class _ChatComposerState extends State<ChatComposer> {
       return;
     }
 
-    HapticFeedback.mediumImpact();
+    unawaited(HapticFeedback.mediumImpact());
     _recordTimer?.cancel();
     setState(() {
       _recording = true;
