@@ -6,6 +6,8 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'firestore_parse.dart';
+
 enum NotificationType {
   like,
   comment,
@@ -71,14 +73,14 @@ class AppNotification {
       actorName: (data['actorName'] as String?) ?? '',
       actorAvatar: (data['actorAvatar'] as String?) ?? '',
       targetId: (data['targetId'] as String?) ?? '',
-      isRead: data['isRead'] as bool? ?? false,
+      isRead: data['isRead'] == true,
       postId: data['postId'] as String?,
       postMedia: data['postMedia'] as String?,
       postAuthorId: data['postAuthorId'] as String?,
       postAuthorName: data['postAuthorName'] as String?,
       postAuthorAvatar: data['postAuthorAvatar'] as String?,
       content: data['content'] as String?,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      createdAt: parseDateTime(data['createdAt']),
     );
   }
 

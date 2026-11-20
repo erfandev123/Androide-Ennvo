@@ -10,6 +10,8 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../data/models/firestore_parse.dart';
+
 enum CommentKind { text, sticker, photo, voice, video, reel }
 
 class ReelComment {
@@ -109,12 +111,12 @@ class ReelComment {
         _ => CommentKind.text,
       },
       text: (data['text'] as String?) ?? '',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      createdAt: parseDateTime(data['createdAt']),
       mediaUrl: data['mediaUrl'] as String?,
       audioDuration: (data['audioDuration'] as num?)?.toInt(),
-      likesCount: (data['likesCount'] as num?)?.toInt() ?? 0,
+      likesCount: parseInt(data['likesCount']),
       isLiked: isLiked,
-      replyToId: data['replyToId'] as String?,
+      replyToId: (data['replyToId'] ?? data['parentId']) as String?,
       replyToName: data['replyToName'] as String?,
       isOwn: isOwn,
     );

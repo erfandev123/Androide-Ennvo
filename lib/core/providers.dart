@@ -76,7 +76,24 @@ class NavBadges {
 }
 
 final navBadgesProvider = Provider<NavBadges>((ref) {
-  return const NavBadges();
+  final uid = ref.watch(authControllerProvider).user?.uid ?? '';
+  if (uid.isEmpty) return const NavBadges();
+
+  final convs = ref.watch(conversationsProvider).value ?? const <Conversation>[];
+  var unreadMessages = 0;
+  for (final conv in convs) {
+    final count = conv.unreadFor(uid);
+    if (count > 0) unreadMessages += count;
+  }
+
+  final alerts =
+      ref.watch(notificationsProvider).value ?? const <AppNotification>[];
+  final unreadAlerts = alerts.where((n) => !n.isRead).length;
+
+  return NavBadges(
+    messages: unreadMessages,
+    notifications: unreadAlerts,
+  );
 });
 
 /// The reels for the "For You" tab.
@@ -127,10 +144,12 @@ final reelsCacheProvider = StateProvider<List<AppPost>>((ref) {
 /// The reels for the "Following" tab.
 final followingReelsProvider = StreamProvider<List<AppPost>>((ref) {
   final auth = ref.watch(authControllerProvider);
-  final followingIds = auth.user == null
-      ? const <String>[]
-      : <String>[auth.user!.uid];
-  return ReelsService.subscribeFollowingReels(followingIds: followingIds);
+  final following = ref.watch(followingProvider).value ?? const <AppUser>[];
+  final ids = <String>{
+    if (auth.user != null) auth.user!.uid,
+    for (final user in following) user.uid,
+  }.toList(growable: false);
+  return ReelsService.subscribeFollowingReels(followingIds: ids);
 });
 
 /// The main home feed.

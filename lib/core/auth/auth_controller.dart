@@ -268,6 +268,39 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  /// Reloads the signed-in user document from Firestore.
+  Future<void> refreshUser() async {
+    final uid = _user?.uid;
+    if (uid == null || uid.isEmpty || !FirebaseService.isReady) return;
+    final fresh = await _loadUser(uid);
+    if (fresh != null) {
+      _user = fresh;
+      notifyListeners();
+    }
+  }
+
+  /// Optimistically updates local profile fields after editing.
+  void updateLocalProfile({
+    String? name,
+    String? username,
+    String? bio,
+    String? link,
+    String? location,
+    String? avatar,
+  }) {
+    final current = _user;
+    if (current == null) return;
+    _user = current.copyWith(
+      name: name,
+      username: username,
+      bio: bio,
+      link: link,
+      location: location,
+      avatar: avatar,
+    );
+    notifyListeners();
+  }
+
   Future<void> signOut() async {
     try {
       if (FirebaseService.isReady) {

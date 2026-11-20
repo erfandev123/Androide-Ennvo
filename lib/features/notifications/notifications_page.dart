@@ -27,7 +27,12 @@ import '../../core/theme/motion.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/notification.dart';
+import '../../data/models/user.dart';
+import '../../data/services/chat_service.dart';
+import '../../data/services/notification_service.dart';
+import '../../data/services/user_service.dart';
 import '../../shared/icons/lucide_icons.dart';
+import '../messages/messages_page.dart' show ChatScreen;
 
 class NotificationsPage extends ConsumerStatefulWidget {
   const NotificationsPage({super.key, this.modal = false});
@@ -47,6 +52,17 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
 
   bool _activityExpanded = false;
   bool _followersExpanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final uid = ref.read(authControllerProvider).user?.uid ?? '';
+      if (uid.isNotEmpty) {
+        NotificationService.markAllRead(uid);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,12 +104,18 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
                 children: [
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () => ref.read(navControllerProvider).backPage(),
-                    child: const LucideIcon(
+                    onTap: () {
+                      if (widget.modal) {
+                        Navigator.of(context).maybePop();
+                      } else {
+                        ref.read(navControllerProvider).backPage();
+                      }
+                    },
+                    child: LucideIcon(
                       LucideIcons.chevronLeft,
                       size: 24,
                       strokeWidth: 2.6,
-                      color: Colors.black,
+                      color: act.textPrimary,
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -266,16 +288,143 @@ class _ActivityPane extends StatelessWidget {
 // ============================================================================
 //  Followers pane
 // ============================================================================
-class _FollowersPane extends StatelessWidget {
+class _FollowersPane extends ConsumerWidget {
   const _FollowersPane({required this.expanded, required this.onToggleExpand});
 
   final bool expanded;
   final VoidCallback onToggleExpand;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final act = context.act;
+    final me = ref.watch(authControllerProvider).user;
+    final followersAsync = ref.watch(followersProvider);
+    final following =
+        ref.watch(followingProvider).value ?? const <AppUser>[];
+    final followingIds = following.map((u) => u.uid).toSet();
 
+    return followersAsync.when(
+      loading: () => const Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2.2),
+        ),
+      ),
+      error: (_, __) => _empty(act),
+      data: (followers) {
+        if (followers.isEmpty) return _empty(act);
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+          itemCount: followers.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final person = followers[index];
+            final isFollowing = followingIds.contains(person.uid);
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: act.cardBackground,
+                borderRadius: BorderRadius.circular(AppRadius.xxl),
+                border: Border.all(color: act.cardBorder),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 21,
+                    backgroundColor: const Color(0xFFE0F2FE),
+                    backgroundImage: person.avatar.isEmpty
+                        ? null
+                        : ResizeImage(NetworkImage(person.avatar), width: 120),
+                    child: person.avatar.isEmpty
+                        ? Text(
+                            person.name.isEmpty
+                                ? '?'
+                                : person.name.characters.first.toUpperCase(),
+                            style: EnnvoText.bodySemi
+                                .copyWith(color: const Color(0xFF0369A1)),
+                          )
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          person.name.isEmpty ? 'User' : person.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: EnnvoText.bodySemi.copyWith(
+                            color: act.textPrimary,
+                            fontSize: 14,
+                          ),
+                        ),
+                        if (person.username.isNotEmpty)
+                          Text(
+                            '@${person.username}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: EnnvoText.caption.copyWith(
+                              color: act.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (me != null) ...[
+                    TextButton(
+                      onPressed: () {
+                        if (isFollowing) {
+                          UserService.unfollow(
+                            myId: me.uid,
+                            otherId: person.uid,
+                          );
+                        } else {
+                          UserService.follow(me: me, other: person);
+                        }
+                      },
+                      child: Text(isFollowing ? 'Following' : 'Follow back'),
+                    ),
+                    IconButton(
+                      tooltip: 'Message',
+                      onPressed: () async {
+                        final id = await ChatService.createConversation(
+                          currentUserId: me.uid,
+                          otherUserId: person.uid,
+                          otherUserName: person.name,
+                          otherUserAvatar: person.avatar,
+                          currentUserName: me.name,
+                          currentUserAvatar: me.avatar,
+                        );
+                        if (!context.mounted) return;
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => ChatScreen(
+                              conversationId: id,
+                              title: person.name.isEmpty ? 'Chat' : person.name,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 18,
+                        color: act.textPrimary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _empty(ActTokens act) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),

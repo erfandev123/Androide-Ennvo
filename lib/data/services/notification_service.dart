@@ -25,15 +25,19 @@ class NotificationService {
         .collection('notifications')
         .doc(userId)
         .collection('items')
-        .orderBy('createdAt', descending: true)
         .limit(60)
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs.map(AppNotification.fromFirestore).toList(
-                growable: false,
-              ),
-        );
+        .map((snapshot) {
+          final items = snapshot.docs
+              .map(AppNotification.fromFirestore)
+              .toList(growable: false);
+          items.sort((a, b) {
+            final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
+            final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
+            return bMs.compareTo(aMs);
+          });
+          return items;
+        });
   }
 
   /// Marks every notification as read.

@@ -41,6 +41,7 @@ class PostCard extends StatefulWidget {
     required this.isLiked,
     required this.isReposted,
     required this.likesCount,
+    this.isLite = false,
     this.onToggleLike,
     this.onToggleRepost,
     this.onOpenProfile,
@@ -52,6 +53,7 @@ class PostCard extends StatefulWidget {
   final bool isLiked;
   final bool isReposted;
   final int likesCount;
+  final bool isLite;
   final VoidCallback? onToggleLike;
   final VoidCallback? onToggleRepost;
   final VoidCallback? onOpenProfile;
@@ -106,7 +108,7 @@ class _PostCardState extends State<PostCard> {
         color: t.surface,
         borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: t.border),
-        boxShadow: t.isDark
+        boxShadow: (t.isDark || widget.isLite)
             ? null
             : const [
                 BoxShadow(
@@ -152,9 +154,9 @@ class _PostCardState extends State<PostCard> {
                           ),
                         ),
                       ),
-                      if (post.authorUsername != null)
+                      if (post.authorUsername != null || post.createdAt != null)
                         Text(
-                          '@${post.authorUsername}',
+                          _metaLine(post),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: EnnvoText.caption.copyWith(
@@ -185,7 +187,7 @@ class _PostCardState extends State<PostCard> {
                     ),
                   ),
                 IconButton(
-                  onPressed: () {},
+                  onPressed: widget.onShare,
                   icon: LucideIcon(
                     LucideIcons.moreHorizontal,
                     size: 20,
@@ -400,6 +402,26 @@ class _PostCardState extends State<PostCard> {
         ],
       ),
     );
+  }
+
+  static String _metaLine(AppPost post) {
+    final handle = post.authorUsername != null && post.authorUsername!.isNotEmpty
+        ? '@${post.authorUsername}'
+        : '';
+    final time = _relativeTime(post.createdAt);
+    if (handle.isNotEmpty && time.isNotEmpty) return '$handle · $time';
+    if (handle.isNotEmpty) return handle;
+    return time;
+  }
+
+  static String _relativeTime(DateTime? time) {
+    if (time == null) return '';
+    final delta = DateTime.now().difference(time);
+    if (delta.inMinutes < 1) return 'Just now';
+    if (delta.inHours < 1) return '${delta.inMinutes}m';
+    if (delta.inHours < 24) return '${delta.inHours}h';
+    if (delta.inDays < 30) return '${delta.inDays}d';
+    return '${delta.inDays ~/ 30}mo';
   }
 }
 
@@ -984,7 +1006,10 @@ class _Avatar extends StatelessWidget {
         color: t.surfaceAlt,
         image: url.isEmpty
             ? null
-            : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
+            : DecorationImage(
+                image: ResizeImage(NetworkImage(url), width: 120),
+                fit: BoxFit.cover,
+              ),
       ),
       child: url.isEmpty
           ? Center(

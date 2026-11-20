@@ -1,23 +1,21 @@
 // ============================================================================
 //  ENNVO — MESSAGES SCREEN
 //
-//  The chat, ported from `src/pages/Messages.tsx`.
+//  Layout order:
+//    1. Stories strip at the top (Create tile + friend stories)
+//    2. Activity row right below Stories, styled like a friend list row
+//    3. Conversations / Messages list
+//    4. Friends quick-start strip
 //
-//  Two panes:
-//    • the conversation list — a stories row on top, then the conversations
-//    • the active conversation — the header, the messages, the read receipt
-//      slot and the composer
-//
-//  On a wide screen the two sit side by side with a draggable divider; on a
-//  phone the list and the chat are two separate screens.
-//
-//  The chat view stays **light** even in dark mode, exactly like the web
-//  app's `.chat-view-container`.
+//  On a wide screen the list and chat sit side-by-side; on a phone a chat
+//  opens as its own full-screen [ChatScreen] without the bottom nav bar.
+//  `.chat-view-container` stays light (`#FFFFFF`) even in dark mode.
 // ============================================================================
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/nav/page_type.dart';
@@ -25,10 +23,12 @@ import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/message.dart';
+import '../../data/models/notification.dart';
 import '../../data/models/user.dart';
 import '../../data/services/chat_service.dart';
 import '../../data/services/story_service.dart';
 import '../../shared/icons/lucide_icons.dart';
+import '../../shared/widgets/story_viewer.dart';
 import '../notifications/notifications_page.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/chat_composer.dart';
@@ -41,11 +41,7 @@ class MessagesPage extends ConsumerStatefulWidget {
 }
 
 class _MessagesPageState extends ConsumerState<MessagesPage> {
-  /// The conversation that is open in the wide layout.
-  ///
-  /// On a phone the conversation opens as its own page instead.
   String? _activeConversationId;
-
   double _sidebarWidth = 440;
   bool _draggingDivider = false;
 
@@ -54,22 +50,19 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     final t = context.tokens;
     final signedInUid = ref.watch(authControllerProvider).user?.uid ?? '';
     final uid = signedInUid.isEmpty ? 'me' : signedInUid;
-    final conversations = ref.watch(conversationsProvider).value ?? const <Conversation>[];
+    final conversations =
+        ref.watch(conversationsProvider).value ?? const <Conversation>[];
     final stories = ref.watch(storiesProvider).value ?? const <Story>[];
     final following = ref.watch(followingProvider).value ?? const <AppUser>[];
     final followers = ref.watch(followersProvider).value ?? const <AppUser>[];
-    final notifications = ref.watch(notificationsProvider).value ?? const [];
+    final notifications =
+        ref.watch(notificationsProvider).value ?? const <AppNotification>[];
     final unreadActivity = notifications.where((item) => !item.isRead).length;
+    final latestActivity = _latestActivitySummary(notifications);
 
-    // The friends of the inbox are the people who follow the user and the
-    // people the user follows, plus the people already in a conversation.
     final friends = _friendsOf(conversations, following, followers, uid);
-
     final isWide = _isWide(context);
 
-    // The navigation bar sits over the bottom of the page, so the content
-    // keeps that much room — the chat composer included. The classic bar is
-    // flush, the glass pill floats, so the room comes from the skin in use.
     final navClearance = AppSizes.navClearanceFor(
       ref.watch(navStyleProvider),
       MediaQuery.paddingOf(context).bottom,
@@ -109,6 +102,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
       stories: stories,
       friends: friends,
       unreadActivity: unreadActivity,
+      latestActivityText: latestActivity,
       onActivity: () {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
@@ -116,7 +110,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
           ),
         );
       },
-      onOpen: (id) => _openConversation(id, _nameOf(conversations, id)),
+      onOpen: (id) => _openConversation(id, _nameOf(conversations, id, uid)),
       onOpenFriend: _openFriend,
       onCreateStory: () =>
           ref.read(navControllerProvider).pushPage(AppPage.create),
@@ -126,7 +120,7 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
         ? null
         : _ChatPane(
             conversationId: _activeConversationId!,
-            title: _nameOf(conversations, _activeConversationId!),
+            title: _nameOf(conversations, _activeConversationId!, uid),
             onBack: () => setState(() => _activeConversationId = null),
           );
 
@@ -135,13 +129,11 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
       body: Stack(
         children: [
           ambientGlow,
-          // --- the phone layout: the conversation list -----------------
           if (!isWide)
             Padding(
               padding: EdgeInsets.only(bottom: navClearance),
               child: list,
             )
-          // --- the wide layout: the list and the chat side by side ------
           else
             Padding(
               padding: EdgeInsets.only(bottom: navClearance),
@@ -172,11 +164,24 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     );
   }
 
+  static String _latestActivitySummary(List<AppNotification> items) {
+    if (items.isEmpty) return 'Notifications & alerts';
+    final latest = items.first;
+    final actor = latest.senderName.isEmpty ? 'Someone' : latest.senderName;
+    final verb = switch (latest.type) {
+      NotificationType.like => 'liked your post',
+      NotificationType.comment => 'commented on your post',
+      NotificationType.follow => 'started following you',
+      NotificationType.repost => 'reposted your post',
+      NotificationType.mention => 'mentioned you',
+      NotificationType.message => 'sent you a message',
+    };
+    return '$actor $verb';
+  }
+
   static bool _isWide(BuildContext context) =>
       MediaQuery.sizeOf(context).width >= 768;
 
-  /// The people the user can talk to: everyone who follows them, everyone
-  /// they follow, and the people in their existing conversations.
   static List<AppUser> _friendsOf(
     List<Conversation> conversations,
     List<AppUser> following,
@@ -211,19 +216,20 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     return list;
   }
 
-  /// The name of the person in a conversation.
-  static String _nameOf(List<Conversation> conversations, String id) {
+  static String _nameOf(
+    List<Conversation> conversations,
+    String id,
+    String currentUid,
+  ) {
     for (final conversation in conversations) {
       if (conversation.id == id) {
-        final name = conversation.displayName('me');
+        final name = conversation.displayName(currentUid);
         return name.isEmpty ? 'Chat' : name;
       }
     }
     return 'Chat';
   }
 
-  /// Opens a conversation. On a phone it covers the app, the way the web app
-  /// hides the navigation while a chat is open.
   void _openConversation(String id, String title) {
     if (_isWide(context)) {
       setState(() => _activeConversationId = id);
@@ -231,40 +237,40 @@ class _MessagesPageState extends ConsumerState<MessagesPage> {
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => _ChatRoute(conversationId: id, title: title),
+        builder: (_) => ChatScreen(conversationId: id, title: title),
       ),
     );
   }
 
-  /// Starts a chat with a friend, making the direct conversation if needed.
   Future<void> _openFriend(AppUser friend) async {
     final user = ref.read(authControllerProvider).user;
-    if (user == null) return;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in to start a conversation.')),
+      );
+      return;
+    }
 
     final id = await ChatService.createConversation(
       currentUserId: user.uid,
       otherUserId: friend.uid,
       otherUserName: friend.name,
       otherUserAvatar: friend.avatar,
+      currentUserName: user.name,
+      currentUserAvatar: user.avatar,
     );
     if (!mounted) return;
     _openConversation(id, friend.name.isEmpty ? 'Chat' : friend.name);
   }
 }
 
-// ============================================================================
-//  The chat page — its own route, pushed over the conversation list
-//
-//  The route covers the whole app, so the navigation bar is not on top of
-//  the conversation: the chat is a page of its own, exactly like it is on
-//  the web.
-//
-//  The messages come live from Firestore. The message that is written is
-//  shown at once and it carries the id of the document, so the copy that
-//  comes back from the server replaces it instead of standing next to it.
-// ============================================================================
-class _ChatRoute extends StatelessWidget {
-  const _ChatRoute({required this.conversationId, required this.title});
+/// Public full-screen chat route usable from Feed, Search, Notifications & Inbox.
+class ChatScreen extends StatelessWidget {
+  const ChatScreen({
+    super.key,
+    required this.conversationId,
+    required this.title,
+  });
 
   final String conversationId;
   final String title;
@@ -278,28 +284,22 @@ class _ChatRoute extends StatelessWidget {
   }
 }
 
-// The live presence and typing of the person on the other side.
 final _presenceProvider = StreamProvider.family<bool, String>((ref, userId) {
   return ChatService.subscribePresence(userId);
 });
 
-final _typingProvider = StreamProvider.family<bool, ({String conversationId, String otherUserId})>((
-  ref,
-  args,
-) {
-  return ChatService.subscribeTyping(
-    conversationId: args.conversationId,
-    otherUserId: args.otherUserId,
-  );
-});
+final _typingProvider =
+    StreamProvider.family<bool, ({String conversationId, String otherUserId})>(
+      (ref, args) {
+        return ChatService.subscribeTyping(
+          conversationId: args.conversationId,
+          otherUserId: args.otherUserId,
+        );
+      },
+    );
 
 // ============================================================================
-//  The chat pane
-//
-//  It owns its messages: the live ones from Firestore, plus the ones that
-//  were written here and have not come back from the server yet. The copy
-//  that comes back replaces the optimistic one, because both carry the same
-//  id.
+//  The chat pane (`.chat-view-container` — light canvas even in dark mode)
 // ============================================================================
 class _ChatPane extends ConsumerStatefulWidget {
   const _ChatPane({
@@ -318,7 +318,307 @@ class _ChatPane extends ConsumerStatefulWidget {
 
 class _ChatPaneState extends ConsumerState<_ChatPane> {
   final List<AppMessage> _pending = <AppMessage>[];
+  final List<AppMessage> _older = <AppMessage>[];
+  bool _loadingOlder = false;
+  bool _hasMoreOlder = true;
   AppMessage? _replyTo;
+
+  @override
+  void initState() {
+    super.initState();
+    _markAsRead();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChatPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversationId != widget.conversationId) {
+      _pending.clear();
+      _older.clear();
+      _hasMoreOlder = true;
+      _replyTo = null;
+      _markAsRead();
+    }
+  }
+
+  void _markAsRead() {
+    final uid = ref.read(authControllerProvider).user?.uid ?? '';
+    if (uid.isEmpty || widget.conversationId.isEmpty) return;
+    ChatService.markRead(
+      conversationId: widget.conversationId,
+      userId: uid,
+    );
+  }
+
+  Future<void> _loadOlder(List<AppMessage> live) async {
+    if (_loadingOlder || !_hasMoreOlder) return;
+    final oldest = _older.isNotEmpty
+        ? _older.first.createdAt
+        : (live.isNotEmpty ? live.first.createdAt : null);
+    if (oldest == null) return;
+
+    setState(() => _loadingOlder = true);
+    final batch = await ChatService.loadOlderMessages(
+      conversationId: widget.conversationId,
+      before: oldest,
+    );
+    if (!mounted) return;
+    setState(() {
+      _loadingOlder = false;
+      if (batch.isEmpty) {
+        _hasMoreOlder = false;
+      } else {
+        _older.insertAll(0, batch);
+      }
+    });
+  }
+
+  Future<void> _sendTyped({
+    required MessageType type,
+    required String content,
+    String? mediaUrl,
+    int? voiceDuration,
+    String? stickerUrl,
+    AppMessage? replyTo,
+    String otherId = '',
+  }) async {
+    final user = ref.read(authControllerProvider).user;
+    final uid = user?.uid ?? 'me';
+    final id = 'client-$uid-${DateTime.now().microsecondsSinceEpoch}';
+
+    final message = AppMessage(
+      id: id,
+      senderId: uid,
+      type: type,
+      content: content,
+      createdAt: DateTime.now(),
+      mediaUrl: mediaUrl,
+      voiceDuration: voiceDuration,
+      stickerUrl: stickerUrl,
+      status: MessageStatus.sending,
+      replyTo: replyTo == null
+          ? null
+          : ReplyPreview(
+              id: replyTo.id,
+              text: replyTo.content.isNotEmpty ? replyTo.content : 'Attachment',
+              authorName: replyTo.senderId,
+            ),
+    );
+
+    setState(() {
+      _pending.add(message);
+      _replyTo = null;
+    });
+
+    await ChatService.sendMessage(
+      conversationId: widget.conversationId,
+      messageId: id,
+      senderId: uid,
+      type: type,
+      content: content,
+      recipientId: otherId,
+      mediaUrl: mediaUrl,
+      voiceDuration: voiceDuration,
+      stickerUrl: stickerUrl,
+      replyTo: message.replyTo,
+    );
+  }
+
+  Future<void> _startCall(String kind, String name, String otherId) async {
+    final user = ref.read(authControllerProvider).user;
+    final uid = user?.uid ?? 'me';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Text(
+          '$kind call',
+          style: EnnvoText.titleSm.copyWith(color: const Color(0xFF111827)),
+        ),
+        content: Text(
+          'Calling $name...',
+          style: EnnvoText.body.copyWith(color: const Color(0xFF4B5563)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              if (user != null) {
+                await ChatService.sendMessage(
+                  conversationId: widget.conversationId,
+                  messageId: 'call-${DateTime.now().microsecondsSinceEpoch}',
+                  senderId: uid,
+                  type: MessageType.system,
+                  content: '$kind call started',
+                  recipientId: otherId,
+                );
+              }
+            },
+            child: const Text('End call'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openDetails(String name, String avatar, bool online) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          16,
+          20,
+          MediaQuery.paddingOf(sheetContext).bottom + 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _PersonAvatar(name: name, url: avatar, size: 64),
+            const SizedBox(height: 12),
+            Text(
+              name.isEmpty ? 'Chat' : name,
+              style: EnnvoText.titleMd.copyWith(color: const Color(0xFF111827)),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              online ? 'Active now' : 'Offline',
+              style: EnnvoText.caption.copyWith(
+                color: online
+                    ? const Color(0xFF22C55E)
+                    : const Color(0xFF6B7280),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () {
+                  Navigator.of(sheetContext).pop();
+                  _markAsRead();
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF111827),
+                  side: const BorderSide(color: Color(0xFFE5E7EB)),
+                ),
+                child: const Text('Mark as read'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openMessageActions(AppMessage message, bool isMine) {
+    const reactions = ['❤️', '😂', '😮', '😢', '😡', '👍'];
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          14,
+          16,
+          MediaQuery.paddingOf(sheetContext).bottom + 14,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                for (final emoji in reactions)
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      ChatService.reactToMessage(
+                        conversationId: widget.conversationId,
+                        messageId: message.id,
+                        emoji: message.reaction == emoji ? null : emoji,
+                      );
+                    },
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: message.reaction == emoji
+                            ? const Color(0xFFE0F2FE)
+                            : const Color(0xFFF3F4F6),
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(emoji, style: const TextStyle(fontSize: 22)),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            ListTile(
+              leading: const LucideIcon(
+                LucideIcons.reply,
+                size: 19,
+                color: Color(0xFF111827),
+              ),
+              title: const Text(
+                'Reply',
+                style: TextStyle(color: Color(0xFF111827)),
+              ),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                setState(() => _replyTo = message);
+              },
+            ),
+            if (message.content.isNotEmpty)
+              ListTile(
+                leading: const LucideIcon(
+                  LucideIcons.copy,
+                  size: 19,
+                  color: Color(0xFF111827),
+                ),
+                title: const Text(
+                  'Copy',
+                  style: TextStyle(color: Color(0xFF111827)),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Clipboard.setData(ClipboardData(text: message.content));
+                },
+              ),
+            if (isMine)
+              ListTile(
+                leading: const LucideIcon(
+                  LucideIcons.trash2,
+                  size: 19,
+                  color: Color(0xFFDC2626),
+                ),
+                title: const Text(
+                  'Delete',
+                  style: TextStyle(color: Color(0xFFDC2626)),
+                ),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  ChatService.deleteMessage(
+                    conversationId: widget.conversationId,
+                    messageId: message.id,
+                  );
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -326,7 +626,8 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
     final signedInUid = ref.watch(authControllerProvider).user?.uid ?? '';
     final uid = signedInUid.isEmpty ? 'me' : signedInUid;
 
-    final conversations = ref.watch(conversationsProvider).value ?? const <Conversation>[];
+    final conversations =
+        ref.watch(conversationsProvider).value ?? const <Conversation>[];
     Conversation? conversation;
     for (final item in conversations) {
       if (item.id == widget.conversationId) {
@@ -347,7 +648,8 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
 
     final name = conversation == null
         ? widget.title
-        : (conversation.participantNames[otherId] ?? widget.title);
+        : (conversation.participantNames[otherId] ??
+            conversation.displayName(uid));
     final avatar = conversation == null
         ? ''
         : (conversation.participantAvatars[otherId] ?? '');
@@ -370,12 +672,17 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
     final asyncMessages = ref.watch(messagesProvider(widget.conversationId));
     final live = asyncMessages.value ?? const <AppMessage>[];
 
-    final known = live.map((message) => message.id).toSet();
-    final messages = [
-      ...live,
-      for (final message in _pending)
-        if (!known.contains(message.id)) message,
-    ];
+    final combinedMap = <String, AppMessage>{};
+    for (final m in _older) {
+      combinedMap[m.id] = m;
+    }
+    for (final m in live) {
+      combinedMap[m.id] = m;
+    }
+    for (final m in _pending) {
+      combinedMap.putIfAbsent(m.id, () => m);
+    }
+    final messages = combinedMap.values.toList(growable: false);
 
     return Container(
       color: t.chatBackground,
@@ -383,37 +690,42 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
         bottom: false,
         child: Column(
           children: [
-            // --- the header --------------------------------------------
+            // --- light-canvas header (always dark ink on white) ------
             Container(
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 10),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFF1F5F9)),
+                ),
+              ),
               child: Row(
                 children: [
                   Tooltip(
                     message: 'Back',
                     child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      final back = widget.onBack;
-                      if (back != null) {
-                        back();
-                      } else {
-                        Navigator.of(context).maybePop();
-                      }
-                    },
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      child: LucideIcon(
-                        LucideIcons.arrowLeft,
-                        size: 20,
-                        strokeWidth: 2.4,
-                        color: t.isDark
-                            ? const Color(0xFFF5F5F5)
-                            : const Color(0xFF1F2937),
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        final back = widget.onBack;
+                        if (back != null) {
+                          back();
+                        } else {
+                          Navigator.of(context).maybePop();
+                        }
+                      },
+                      child: const SizedBox(
+                        width: 40,
+                        height: 40,
+                        child: Center(
+                          child: LucideIcon(
+                            LucideIcons.arrowLeft,
+                            size: 20,
+                            strokeWidth: 2.4,
+                            color: Color(0xFF1F2937),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
                   ),
                   _PersonAvatar(name: name, url: avatar, size: 40),
                   const SizedBox(width: 10),
@@ -427,34 +739,20 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: EnnvoText.bodySemi.copyWith(
-                            color: t.isDark ? Colors.white : const Color(0xFF111827),
+                            color: const Color(0xFF111827),
                             fontSize: 17,
                           ),
                         ),
                         const SizedBox(height: 1),
                         if (typing)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const LucideIcon(
-                                LucideIcons.mic,
-                                size: 11,
-                                strokeWidth: 2,
-                                color: Color(0xFFA855F7),
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  'typing...',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: EnnvoText.tiny.copyWith(
-                                    color: const Color(0xFFA855F7),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            ],
+                          Text(
+                            'typing...',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: EnnvoText.tiny.copyWith(
+                              color: const Color(0xFF7C3AED),
+                              fontWeight: FontWeight.w600,
+                            ),
                           )
                         else
                           Text(
@@ -462,17 +760,26 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                             style: EnnvoText.tiny.copyWith(
                               color: online
                                   ? const Color(0xFF22C55E)
-                                  : t.textTertiary,
+                                  : const Color(0xFF6B7280),
                             ),
                           ),
                       ],
                     ),
                   ),
-                  _HeaderIcon(icon: LucideIcons.phone, semantic: 'Audio call'),
-                  _HeaderIcon(icon: LucideIcons.video, semantic: 'Video call'),
+                  _HeaderIcon(
+                    icon: LucideIcons.phone,
+                    semantic: 'Audio call',
+                    onTap: () => _startCall('Audio', name, otherId),
+                  ),
+                  _HeaderIcon(
+                    icon: LucideIcons.video,
+                    semantic: 'Video call',
+                    onTap: () => _startCall('Video', name, otherId),
+                  ),
                   _HeaderIcon(
                     icon: LucideIcons.moreVertical,
                     semantic: 'Details',
+                    onTap: () => _openDetails(name, avatar, online),
                   ),
                 ],
               ),
@@ -484,14 +791,38 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                   ? Center(
                       child: Text(
                         'Say hello 👋',
-                        style: EnnvoText.body.copyWith(color: t.textTertiary),
+                        style: EnnvoText.body.copyWith(
+                          color: const Color(0xFF6B7280),
+                        ),
                       ),
                     )
                   : ListView.builder(
                       reverse: true,
                       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                      itemCount: messages.length,
+                      itemCount: messages.length +
+                          (_hasMoreOlder && live.length >= 40 ? 1 : 0),
                       itemBuilder: (context, index) {
+                        if (index == messages.length) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Center(
+                              child: TextButton(
+                                onPressed: _loadingOlder
+                                    ? null
+                                    : () => _loadOlder(live),
+                                child: Text(
+                                  _loadingOlder
+                                      ? 'Loading...'
+                                      : 'Load older messages',
+                                  style: EnnvoText.caption.copyWith(
+                                    color: const Color(0xFF0EA5E9),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+
                         final message = messages[messages.length - 1 - index];
                         final previous = index + 1 < messages.length
                             ? messages[messages.length - 2 - index]
@@ -523,8 +854,11 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
                           isMine: isMine,
                           isFirstInGroup: !sameAsPrevious,
                           isLastInGroup: !sameAsNext,
+                          avatarUrl: avatar,
                           replyPreview: replyPreview,
                           onReply: () => setState(() => _replyTo = message),
+                          onLongPress: () =>
+                              _openMessageActions(message, isMine),
                         );
                       },
                     ),
@@ -534,7 +868,43 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
             ChatComposer(
               replyTo: _replyTo,
               onCancelReply: () => setState(() => _replyTo = null),
-              onSend: _send,
+              onTyping: (v) {
+                if (uid != 'me') {
+                  ChatService.setTyping(
+                    conversationId: widget.conversationId,
+                    userId: uid,
+                    isTyping: v,
+                  );
+                }
+              },
+              onSend: (text, replyTo) => _sendTyped(
+                type: MessageType.text,
+                content: text,
+                replyTo: replyTo,
+                otherId: otherId,
+              ),
+              onSendMedia: (url, type, replyTo) => _sendTyped(
+                type: type,
+                content: '',
+                mediaUrl: url,
+                replyTo: replyTo,
+                otherId: otherId,
+              ),
+              onSendVoice: (url, durationSec, replyTo) => _sendTyped(
+                type: MessageType.voice,
+                content: 'Voice message',
+                mediaUrl: url,
+                voiceDuration: durationSec,
+                replyTo: replyTo,
+                otherId: otherId,
+              ),
+              onSendSticker: (url, replyTo) => _sendTyped(
+                type: MessageType.sticker,
+                content: 'Sticker',
+                stickerUrl: url,
+                replyTo: replyTo,
+                otherId: otherId,
+              ),
             ),
           ],
         ),
@@ -548,75 +918,45 @@ class _ChatPaneState extends ConsumerState<_ChatPane> {
     if (ta == null || tb == null) return false;
     return ta.difference(tb).inSeconds.abs() < 60;
   }
-
-  /// Writes a message and shows it right away.
-  Future<void> _send(String text, AppMessage? replyTo) async {
-    final user = ref.read(authControllerProvider).user;
-    final uid = user?.uid ?? 'me';
-    final id = 'client-$uid-${DateTime.now().microsecondsSinceEpoch}';
-
-    final message = AppMessage(
-      id: id,
-      senderId: uid,
-      type: MessageType.text,
-      content: text,
-      createdAt: DateTime.now(),
-      status: MessageStatus.sending,
-      replyTo: replyTo == null
-          ? null
-          : ReplyPreview(
-              id: replyTo.id,
-              text: replyTo.content,
-              authorName: replyTo.senderId,
-            ),
-    );
-
-    setState(() {
-      _pending.add(message);
-      _replyTo = null;
-    });
-
-    await ChatService.sendMessage(
-      conversationId: widget.conversationId,
-      messageId: id,
-      senderId: uid,
-      type: MessageType.text,
-      content: text,
-      replyTo: message.replyTo,
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _pending.removeWhere((pending) => pending.id == id);
-    });
-  }
 }
 
 class _HeaderIcon extends StatelessWidget {
-  const _HeaderIcon({required this.icon, required this.semantic});
+  const _HeaderIcon({
+    required this.icon,
+    required this.semantic,
+    required this.onTap,
+  });
 
   final String icon;
   final String semantic;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
     return Semantics(
+      button: true,
       label: semantic,
-      child: SizedBox(
-        width: 38,
-        height: 40,
-        child: LucideIcon(
-          icon,
-          size: 20,
-          strokeWidth: 2.1,
-          color: t.isDark ? const Color(0xFFE5E5E5) : const Color(0xFF374151),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: SizedBox(
+          width: 38,
+          height: 40,
+          child: LucideIcon(
+            icon,
+            size: 20,
+            strokeWidth: 2.1,
+            color: const Color(0xFF374151),
+          ),
         ),
       ),
     );
   }
 }
 
+// ============================================================================
+//  Conversation list
+// ============================================================================
 class _ConversationList extends StatefulWidget {
   const _ConversationList({
     required this.conversations,
@@ -624,6 +964,7 @@ class _ConversationList extends StatefulWidget {
     required this.stories,
     required this.friends,
     required this.unreadActivity,
+    required this.latestActivityText,
     required this.onActivity,
     required this.onOpen,
     required this.onOpenFriend,
@@ -635,6 +976,7 @@ class _ConversationList extends StatefulWidget {
   final List<Story> stories;
   final List<AppUser> friends;
   final int unreadActivity;
+  final String latestActivityText;
   final VoidCallback onActivity;
   final ValueChanged<String> onOpen;
   final ValueChanged<AppUser> onOpenFriend;
@@ -646,15 +988,24 @@ class _ConversationList extends StatefulWidget {
 
 class _ConversationListState extends State<_ConversationList> {
   final TextEditingController _search = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
   bool _searching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchFocus.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
     _search.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
-  /// The friends that match what the user typed.
   List<AppUser> get _matchedFriends {
     final term = _search.text.trim().toLowerCase();
     if (term.isEmpty) return const <AppUser>[];
@@ -667,21 +1018,16 @@ class _ConversationListState extends State<_ConversationList> {
         .toList(growable: false);
   }
 
-  /// The conversations that match what the user typed.
   List<Conversation> get _matchedConversations {
     final term = _search.text.trim().toLowerCase();
     if (term.isEmpty) return widget.conversations;
     return widget.conversations.where((conversation) {
-      final name = _otherName(conversation).toLowerCase();
+      final name = conversation
+          .displayName(widget.currentUserId)
+          .toLowerCase();
       return name.contains(term) ||
           conversation.lastMessage.toLowerCase().contains(term);
     }).toList(growable: false);
-  }
-
-  static String _otherName(Conversation conversation) {
-    final values = conversation.participantNames.values;
-    if (values.isEmpty) return conversation.groupName ?? '';
-    return values.first;
   }
 
   @override
@@ -707,7 +1053,8 @@ class _ConversationListState extends State<_ConversationList> {
                 children: [
                   _CircleButton(
                     icon: _searching ? LucideIcons.arrowLeft : LucideIcons.users,
-                    semanticLabel: _searching ? 'Close search' : 'Find friends',
+                    semanticLabel:
+                        _searching ? 'Close search' : 'Find friends',
                     onTap: () {
                       setState(() {
                         _searching = !_searching;
@@ -715,28 +1062,37 @@ class _ConversationListState extends State<_ConversationList> {
                       });
                     },
                   ),
-                  if (_searching)
+                  if (_searching) ...[
+                    const SizedBox(width: 8),
                     Expanded(
-                      child: Container(
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 140),
+                        height: 42,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
                         decoration: BoxDecoration(
-                          color: t.surfaceAlt,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: t.border),
+                          color: _searchFocus.hasFocus ? t.surface : t.surfaceAlt,
+                          borderRadius: BorderRadius.circular(21),
+                          border: Border.all(
+                            color:
+                                _searchFocus.hasFocus ? t.accent : t.border,
+                            width: _searchFocus.hasFocus ? 1.5 : 1.0,
+                          ),
                         ),
                         child: Row(
                           children: [
                             LucideIcon(
                               LucideIcons.search,
-                              size: 17,
+                              size: 16,
                               strokeWidth: 2.2,
-                              color: t.textTertiary,
+                              color: _searchFocus.hasFocus
+                                  ? t.accent
+                                  : t.textTertiary,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: TextField(
                                 controller: _search,
+                                focusNode: _searchFocus,
                                 autofocus: true,
                                 onChanged: (_) => setState(() {}),
                                 style: EnnvoText.body.copyWith(
@@ -750,7 +1106,7 @@ class _ConversationListState extends State<_ConversationList> {
                                   enabledBorder: InputBorder.none,
                                   focusedBorder: InputBorder.none,
                                   contentPadding: EdgeInsets.zero,
-                                  hintText: 'Search friends',
+                                  hintText: 'Search friends & chats...',
                                   hintStyle: EnnvoText.body.copyWith(
                                     color: t.textTertiary,
                                     fontSize: 14,
@@ -758,18 +1114,37 @@ class _ConversationListState extends State<_ConversationList> {
                                 ),
                               ),
                             ),
+                            if (_search.text.isNotEmpty)
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  _search.clear();
+                                  setState(() {});
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 4),
+                                  child: LucideIcon(
+                                    LucideIcons.x,
+                                    size: 15,
+                                    strokeWidth: 2.3,
+                                    color: t.textTertiary,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
-                    )
-                  else ...[
+                    ),
+                  ] else ...[
                     const Spacer(),
                     Row(
                       children: [
                         Text(
                           'Chats',
                           style: EnnvoText.titleLg.copyWith(
-                            color: t.isDark ? Colors.white : const Color(0xFF0A0A0A),
+                            color: t.isDark
+                                ? Colors.white
+                                : const Color(0xFF0A0A0A),
                             fontSize: 20,
                             letterSpacing: -0.4,
                           ),
@@ -807,14 +1182,49 @@ class _ConversationListState extends State<_ConversationList> {
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 16),
                 children: [
-                  // --- the Activity option, a friend row ----------------
+                  // --- 1. STORIES STRIP FIRST AT THE TOP -----------------
+                  if (!_searching)
+                    SizedBox(
+                      height: 108,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        itemCount: _inboxStories().length + 1,
+                        separatorBuilder: (_, __) => const SizedBox(width: 10),
+                        itemBuilder: (context, index) {
+                          if (index == 0) {
+                            return _StoryTile(
+                              name: 'Create',
+                              isCreate: true,
+                              onTap: widget.onCreateStory,
+                            );
+                          }
+                          final story = _inboxStories()[index - 1];
+                          return _StoryTile(
+                            name: story.authorName.isEmpty
+                                ? 'Story'
+                                : story.authorName,
+                            avatarUrl: story.authorAvatar,
+                            viewed:
+                                story.viewers.contains(widget.currentUserId),
+                            onTap: () => _openStory(context, index - 1),
+                          );
+                        },
+                      ),
+                    ),
+
+                  // --- 2. ACTIVITY FRIEND-STYLE ROW RIGHT BELOW STORIES --
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
                     onTap: widget.onActivity,
-                    child: Padding(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
-                        vertical: 6,
+                        vertical: 8,
                       ),
                       child: Row(
                         children: [
@@ -838,38 +1248,47 @@ class _ConversationListState extends State<_ConversationList> {
                             ),
                           ),
                           const SizedBox(width: 12),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   'Activity',
-                                  style: TextStyle(
-                                    fontFamily: 'PlusJakartaSans',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: EnnvoText.bodySemi.copyWith(
+                                    color: t.textPrimary,
                                     fontSize: 15,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF111827),
                                   ),
                                 ),
-                                SizedBox(height: 2),
+                                const SizedBox(height: 2),
                                 Text(
-                                  'Notifications & alerts',
-                                  style: TextStyle(
-                                    fontFamily: 'PlusJakartaSans',
-                                    fontSize: 12.5,
-                                    color: Color(0xFF6B7280),
+                                  widget.latestActivityText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: EnnvoText.caption.copyWith(
+                                    color: widget.unreadActivity > 0
+                                        ? t.textPrimary
+                                        : t.textSecondary,
+                                    fontSize: 13,
+                                    fontWeight: widget.unreadActivity > 0
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
                                   ),
                                 ),
                               ],
                             ),
                           ),
+                          const SizedBox(width: 8),
                           if (widget.unreadActivity > 0)
                             Container(
                               constraints: const BoxConstraints(
                                 minWidth: 22,
                                 minHeight: 22,
                               ),
-                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 6),
                               alignment: Alignment.center,
                               decoration: const BoxDecoration(
                                 color: Color(0xFFFE2C55),
@@ -897,51 +1316,18 @@ class _ConversationListState extends State<_ConversationList> {
                     ),
                   ),
 
-                  // --- the stories of the people in the inbox ----------
-                  if (!_searching)
-                    SizedBox(
-                      height: 108,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        itemCount: _inboxStories().length + 1,
-                        separatorBuilder: (_, __) => const SizedBox(width: 10),
-                        itemBuilder: (context, index) {
-                          if (index == 0) {
-                            return _StoryTile(
-                              name: 'Create',
-                              isCreate: true,
-                              onTap: widget.onCreateStory,
-                            );
-                          }
-                          final story = _inboxStories()[index - 1];
-                          return _StoryTile(
-                            name: story.authorName.isEmpty
-                                ? 'Story'
-                                : story.authorName,
-                            avatarUrl: story.authorAvatar,
-                            viewed: story.viewers.contains(widget.currentUserId),
-                            onTap: () => _openStory(context, index - 1),
-                          );
-                        },
+                  // --- matched friends while searching -------------------
+                  if (_searching && _matchedFriends.isNotEmpty) ...[
+                    const _SectionLabel(label: 'Friends'),
+                    for (final friend in _matchedFriends)
+                      _FriendRow(
+                        friend: friend,
+                        onTap: () => widget.onOpenFriend(friend),
                       ),
-                    ),
+                  ],
 
-                  // --- the real friends --------------------------------
-                  if (_searching)
-                    if (_matchedFriends.isNotEmpty) ...[
-                      _SectionLabel(label: 'Friends'),
-                      for (final friend in _matchedFriends)
-                        _FriendRow(
-                          friend: friend,
-                          onTap: () => widget.onOpenFriend(friend),
-                        ),
-                    ],
-
-                  // --- the conversations --------------------------------
-                  _SectionLabel(
-                    label: _searching ? 'Chats' : 'Messages',
-                  ),
+                  // --- 3. CONVERSATIONS / MESSAGES -----------------------
+                  _SectionLabel(label: _searching ? 'Chats' : 'Messages'),
                   if (_matchedConversations.isEmpty && !_searching)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
@@ -979,10 +1365,10 @@ class _ConversationListState extends State<_ConversationList> {
                         onTap: () => widget.onOpen(conversation.id),
                       ),
 
-                  // --- the rest of the friends, when there is no search -
+                  // --- 4. FRIENDS STRIP ----------------------------------
                   if (!_searching && widget.friends.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    _SectionLabel(label: 'Friends'),
+                    const _SectionLabel(label: 'Friends'),
                     SizedBox(
                       height: 96,
                       child: ListView.separated(
@@ -1009,7 +1395,6 @@ class _ConversationListState extends State<_ConversationList> {
     );
   }
 
-  /// One story per author, newest first.
   List<Story> _inboxStories() {
     final seen = <String>{};
     final stories = <Story>[];
@@ -1025,7 +1410,7 @@ class _ConversationListState extends State<_ConversationList> {
     final stories = _inboxStories();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => _StoryViewerRoute(
+        builder: (_) => StoryViewerPage(
           stories: stories,
           initialIndex: index,
           currentUserId: widget.currentUserId,
@@ -1094,7 +1479,9 @@ class _FriendRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    friend.username.isEmpty ? 'Tap to chat' : '@${friend.username}',
+                    friend.username.isEmpty
+                        ? 'Tap to chat'
+                        : '@${friend.username}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: EnnvoText.caption.copyWith(color: t.textTertiary),
@@ -1132,6 +1519,7 @@ class _FriendTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
@@ -1146,7 +1534,10 @@ class _FriendTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
-              style: EnnvoText.tiny.copyWith(fontSize: 11.5),
+              style: EnnvoText.tiny.copyWith(
+                fontSize: 11.5,
+                color: t.textPrimary,
+              ),
             ),
           ],
         ),
@@ -1177,7 +1568,7 @@ class _PersonAvatar extends StatelessWidget {
         image: url.isEmpty
             ? null
             : DecorationImage(
-                image: NetworkImage(url),
+                image: ResizeImage(NetworkImage(url), width: 140),
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.medium,
               ),
@@ -1193,178 +1584,6 @@ class _PersonAvatar extends StatelessWidget {
               ),
             )
           : null,
-    );
-  }
-}
-
-// A full screen story viewer, the same gesture the web app uses in the inbox.
-class _StoryViewerRoute extends StatefulWidget {
-  const _StoryViewerRoute({
-    required this.stories,
-    required this.initialIndex,
-    required this.currentUserId,
-  });
-
-  final List<Story> stories;
-  final int initialIndex;
-  final String currentUserId;
-
-  @override
-  State<_StoryViewerRoute> createState() => _StoryViewerRouteState();
-}
-
-class _StoryViewerRouteState extends State<_StoryViewerRoute> {
-  late final PageController _controller =
-      PageController(initialPage: widget.initialIndex);
-  int _index = 0;
-  Timer? _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _index = widget.initialIndex;
-    _schedule();
-    _markSeen();
-  }
-
-  void _markSeen() {
-    final story = widget.stories[_index];
-    if (!story.viewers.contains(widget.currentUserId)) {
-      StoryService.markSeen(storyId: story.id, userId: widget.currentUserId);
-    }
-  }
-
-  void _schedule() {
-    _timer?.cancel();
-    _timer = Timer(const Duration(seconds: 6), _next);
-  }
-
-  void _next() {
-    if (_index + 1 < widget.stories.length) {
-      _controller.animateToPage(
-        _index + 1,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOut,
-      );
-    } else {
-      Navigator.of(context).maybePop();
-    }
-  }
-
-  void _previous() {
-    if (_index > 0) {
-      _controller.animateToPage(
-        _index - 1,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOut,
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          PageView.builder(
-            controller: _controller,
-            itemCount: widget.stories.length,
-            onPageChanged: (index) {
-              setState(() => _index = index);
-              _markSeen();
-              _schedule();
-            },
-            itemBuilder: (context, index) {
-              final story = widget.stories[index];
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapDown: (details) {
-                  final width = MediaQuery.sizeOf(context).width;
-                  if (details.globalPosition.dx < width * 0.32) {
-                    _previous();
-                  } else {
-                    _next();
-                  }
-                },
-                child: Center(
-                  child: story.mediaUrl.isEmpty
-                      ? const SizedBox.shrink()
-                      : Image.network(
-                          story.mediaUrl,
-                          fit: BoxFit.contain,
-                          filterQuality: FilterQuality.medium,
-                        ),
-                ),
-              );
-            },
-          ),
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 12,
-            left: 8,
-            right: 8,
-            child: Row(
-              children: [
-                for (var i = 0; i < widget.stories.length; i++)
-                  Expanded(
-                    child: Container(
-                      height: 3,
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      decoration: BoxDecoration(
-                        color: i <= _index
-                            ? Colors.white
-                            : Colors.white.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 26,
-            left: 12,
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: _PersonAvatar(
-                    name: widget.stories[_index].authorName,
-                    url: widget.stories[_index].authorAvatar,
-                    size: 34,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  widget.stories[_index].authorName,
-                  style: const TextStyle(
-                    fontFamily: 'PlusJakartaSans',
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 24,
-            right: 8,
-            child: IconButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.close, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1420,7 +1639,9 @@ class _ConversationRow extends StatelessWidget {
                       color: const Color(0xFF0EA5E9),
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: t.isDark ? const Color(0xFF16181F) : Colors.white,
+                        color: t.isDark
+                            ? const Color(0xFF16181F)
+                            : Colors.white,
                         width: 2,
                       ),
                     ),
@@ -1452,7 +1673,9 @@ class _ConversationRow extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: EnnvoText.caption.copyWith(
                       color: isUnread
-                          ? (t.isDark ? Colors.white : const Color(0xFF111827))
+                          ? (t.isDark
+                              ? Colors.white
+                              : const Color(0xFF111827))
                           : const Color(0xFFA3A3A3),
                       fontSize: 13,
                       fontWeight: isUnread ? FontWeight.w600 : FontWeight.w400,
@@ -1468,14 +1691,17 @@ class _ConversationRow extends StatelessWidget {
                 Text(
                   _relativeTime(conversation.updatedAt),
                   style: EnnvoText.tiny.copyWith(
-                    color: t.isDark ? const Color(0xFF737373) : const Color(0xFFA3A3A3),
+                    color: t.isDark
+                        ? const Color(0xFF737373)
+                        : const Color(0xFFA3A3A3),
                     fontSize: 11.5,
                   ),
                 ),
                 if (unread > 0) ...[
                   const SizedBox(height: 6),
                   Container(
-                    constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+                    constraints:
+                        const BoxConstraints(minWidth: 22, minHeight: 22),
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     alignment: Alignment.center,
                     decoration: const BoxDecoration(
@@ -1573,10 +1799,15 @@ class _StoryTile extends StatelessWidget {
                       child: Container(
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: t.isDark ? const Color(0xFF0A0A0A) : Colors.white,
+                          color: t.isDark
+                              ? const Color(0xFF0A0A0A)
+                              : Colors.white,
                           image: (avatarUrl.isNotEmpty && !isCreate)
                               ? DecorationImage(
-                                  image: NetworkImage(avatarUrl),
+                                  image: ResizeImage(
+                                    NetworkImage(avatarUrl),
+                                    width: 140,
+                                  ),
                                   fit: BoxFit.cover,
                                   filterQuality: FilterQuality.medium,
                                 )
@@ -1629,7 +1860,9 @@ class _StoryTile extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: EnnvoText.tiny.copyWith(
-                  color: t.isDark ? const Color(0xFFE5E5E5) : const Color(0xFF1F2937),
+                  color: t.isDark
+                      ? const Color(0xFFE5E5E5)
+                      : const Color(0xFF1F2937),
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
@@ -1642,9 +1875,6 @@ class _StoryTile extends StatelessWidget {
   }
 }
 
-// ============================================================================
-//  The draggable divider
-// ============================================================================
 class _Divider extends StatelessWidget {
   const _Divider({
     required this.dragging,
@@ -1676,16 +1906,15 @@ class _Divider extends StatelessWidget {
           height: double.infinity,
           color: dragging
               ? const Color(0xFF0EA5E9)
-              : (t.isDark ? const Color(0x26FFFFFF) : const Color(0xCCE5E7EB)),
+              : (t.isDark
+                  ? const Color(0x26FFFFFF)
+                  : const Color(0xCCE5E7EB)),
         ),
       ),
     );
   }
 }
 
-// ============================================================================
-//  A round icon button
-// ============================================================================
 class _CircleButton extends StatelessWidget {
   const _CircleButton({
     required this.icon,
@@ -1716,7 +1945,8 @@ class _CircleButton extends StatelessWidget {
                 ? const Color(0x1AFFFFFF)
                 : const Color(0xB3FFFFFF),
             border: Border.all(
-              color: t.isDark ? const Color(0x1AFFFFFF) : const Color(0x0D000000),
+              color:
+                  t.isDark ? const Color(0x1AFFFFFF) : const Color(0x0D000000),
             ),
           ),
           alignment: Alignment.center,

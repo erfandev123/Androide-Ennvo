@@ -7,6 +7,8 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'firestore_parse.dart';
+
 enum MessageType {
   text,
   image,
@@ -76,10 +78,17 @@ class AppMessage {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? const <String, dynamic>{};
+    return AppMessage.fromMap(data, id: doc.id);
+  }
+
+  factory AppMessage.fromMap(
+    Map<String, dynamic> data, {
+    String id = '',
+  }) {
     final rawItems = data['mediaItems'] as List?;
 
     return AppMessage(
-      id: doc.id,
+      id: id.isNotEmpty ? id : ((data['id'] as String?) ?? ''),
       senderId: (data['senderId'] as String?) ?? '',
       type: switch (data['type'] as String?) {
         'image' => MessageType.image,
@@ -92,10 +101,9 @@ class AppMessage {
         _ => MessageType.text,
       },
       content: (data['content'] as String?) ?? '',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      createdAt: parseDateTime(data['createdAt']),
       mediaUrl: data['mediaUrl'] as String?,
-      mediaUrls:
-          (data['mediaUrls'] as List?)?.whereType<String>().toList() ?? const [],
+      mediaUrls: parseStringList(data['mediaUrls']),
       mediaItems:
           rawItems
               ?.whereType<Map>()
@@ -118,11 +126,11 @@ class AppMessage {
       },
       voiceDuration: (data['voiceDuration'] as num?)?.toInt(),
       reaction: data['reaction'] as String?,
-      replyTo: data['replyTo'] == null
-          ? null
-          : ReplyPreview.fromMap(
+      replyTo: data['replyTo'] is Map
+          ? ReplyPreview.fromMap(
               Map<String, dynamic>.from(data['replyTo'] as Map),
-            ),
+            )
+          : null,
     );
   }
 
@@ -197,7 +205,13 @@ class Conversation {
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) {
     final data = doc.data() ?? const <String, dynamic>{};
+    return Conversation.fromMap(data, id: doc.id);
+  }
 
+  factory Conversation.fromMap(
+    Map<String, dynamic> data, {
+    String id = '',
+  }) {
     Map<String, String> stringMap(String key) {
       final raw = data[key] as Map?;
       if (raw == null) return const {};
@@ -207,7 +221,7 @@ class Conversation {
     Map<String, int> intMap(String key) {
       final raw = data[key] as Map?;
       if (raw == null) return const {};
-      return raw.map((k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0));
+      return raw.map((k, v) => MapEntry(k.toString(), parseInt(v)));
     }
 
     Map<String, bool> boolMap(String key) {
@@ -216,22 +230,46 @@ class Conversation {
       return raw.map((k, v) => MapEntry(k.toString(), v == true));
     }
 
+    final names = Map<String, String>.of(stringMap('participantNames'));
+    final avatars = Map<String, String>.of(stringMap('participantAvatars'));
+    final ids = List<String>.of(parseStringList(data['participantIds']));
+
+    // Web app conversations may store `{ participants: { uid: { name, avatar } } }`
+    final participantsRaw = data['participants'] as Map?;
+    if (participantsRaw != null) {
+      participantsRaw.forEach((rawKey, rawVal) {
+        final pid = rawKey.toString();
+        if (pid.isEmpty) return;
+        if (!ids.contains(pid)) ids.add(pid);
+        if (rawVal is Map) {
+          final pName = (rawVal['name'] ?? rawVal['displayName'])?.toString();
+          final pAvatar = (rawVal['avatar'] ?? rawVal['photoURL'])?.toString();
+          if ((names[pid] ?? '').isEmpty && pName != null && pName.isNotEmpty) {
+            names[pid] = pName;
+          }
+          if ((avatars[pid] ?? '').isEmpty &&
+              pAvatar != null &&
+              pAvatar.isNotEmpty) {
+            avatars[pid] = pAvatar;
+          }
+        }
+      });
+    }
+
     return Conversation(
-      id: doc.id,
-      participantIds:
-          (data['participantIds'] as List?)?.whereType<String>().toList() ??
-          const [],
-      participantNames: stringMap('participantNames'),
-      participantAvatars: stringMap('participantAvatars'),
+      id: id.isNotEmpty ? id : ((data['id'] as String?) ?? ''),
+      participantIds: ids,
+      participantNames: names,
+      participantAvatars: avatars,
       lastMessage: (data['lastMessage'] as String?) ?? '',
       unreadCount: intMap('unreadCount'),
-      updatedAt: (data['updatedAt'] as Timestamp?)?.toDate(),
+      updatedAt: parseDateTime(data['updatedAt']),
       typing: boolMap('typing'),
       theme: data['theme'] as String?,
-      isGroup: data['isGroup'] as bool? ?? false,
+      isGroup: data['isGroup'] == true,
       groupName: data['groupName'] as String?,
       groupAvatar: data['groupAvatar'] as String?,
-      isRequest: data['isRequest'] as bool? ?? false,
+      isRequest: data['isRequest'] == true,
       requestTo: data['requestTo'] as String?,
       requestFrom: data['requestFrom'] as String?,
       requestStatus: data['requestStatus'] as String?,
@@ -246,7 +284,9 @@ class Conversation {
         .where((id) => id != currentUserId)
         .firstOrNull;
     if (other == null) return 'Unknown';
-    return participantNames[other] ?? 'Unknown';
+    final name = participantNames[other];
+    if (name == null || name.isEmpty) return 'Unknown';
+    return name;
   }
 
   /// The avatar of the conversation.

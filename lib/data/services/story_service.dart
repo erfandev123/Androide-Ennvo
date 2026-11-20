@@ -7,6 +7,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../models/firestore_parse.dart';
 import 'firebase_service.dart';
 
 class Story {
@@ -20,6 +21,8 @@ class Story {
     required this.createdAt,
     required this.expiresAt,
     this.viewers = const [],
+    this.text = '',
+    this.status,
   });
 
   final String id;
@@ -33,29 +36,68 @@ class Story {
   final DateTime? createdAt;
   final DateTime? expiresAt;
   final List<String> viewers;
+  final String text;
+  final String? status;
 
-  bool get isVideo => type == 'video';
+  bool get isVideo => type.toLowerCase() == 'video';
+
+  bool get isActive {
+    if (status == 'deleted' || status == 'expired' || status == 'archived') {
+      return false;
+    }
+    return !isExpired;
+  }
 
   bool get isExpired {
     final expiry = expiresAt;
-    if (expiry == null) return false;
-    return DateTime.now().isAfter(expiry);
+    if (expiry != null) return DateTime.now().isAfter(expiry);
+    final created = createdAt;
+    if (created != null) {
+      return DateTime.now().difference(created) > const Duration(hours: 24);
+    }
+    return false;
   }
 
   bool get isSeen => viewers.isNotEmpty;
 
   factory Story.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
+    return Story.fromMap(data, id: doc.id);
+  }
+
+  factory Story.fromMap(
+    Map<String, dynamic> data, {
+    String id = '',
+  }) {
+    var mediaUrl = (data['mediaUrl'] as String?) ?? '';
+    if (mediaUrl.isEmpty) {
+      final rawMedia = data['media'];
+      if (rawMedia is String) {
+        mediaUrl = rawMedia;
+      } else {
+        final list = parseStringList(rawMedia);
+        if (list.isNotEmpty) mediaUrl = list.first;
+      }
+    }
+
+    final rawName = (data['authorName'] as String?)?.trim() ?? '';
+    final rawUsername = (data['authorUsername'] as String?)?.trim() ?? '';
+    final authorName = rawName.isNotEmpty
+        ? rawName
+        : (rawUsername.isNotEmpty ? rawUsername : 'User');
+
     return Story(
-      id: doc.id,
+      id: id.isNotEmpty ? id : ((data['id'] as String?) ?? ''),
       authorId: (data['authorId'] as String?) ?? '',
-      authorName: (data['authorName'] as String?) ?? '',
+      authorName: authorName,
       authorAvatar: (data['authorAvatar'] as String?) ?? '',
-      mediaUrl: (data['mediaUrl'] as String?) ?? '',
-      type: (data['type'] as String?) ?? 'image',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
-      expiresAt: (data['expiresAt'] as Timestamp?)?.toDate(),
-      viewers: (data['viewers'] as List?)?.whereType<String>().toList() ?? const [],
+      mediaUrl: mediaUrl,
+      type: (data['type'] ?? data['mediaType'] ?? 'image').toString(),
+      createdAt: parseDateTime(data['createdAt']),
+      expiresAt: parseDateTime(data['expiresAt']),
+      viewers: parseStringList(data['viewers']),
+      text: (data['text'] as String?) ?? '',
+      status: data['status'] as String?,
     );
   }
 }
@@ -63,27 +105,38 @@ class Story {
 class StoryService {
   const StoryService._();
 
-  /// Subscribes to the active stories of everybody the user follows,
-  /// plus their own.
+  /// Subscribes to active stories without requiring a composite `status+createdAt`
+  /// index (web-created stories often omit `status`).
   static Stream<List<Story>> subscribeStories({
     List<String> followingIds = const [],
     int limit = 40,
   }) {
     if (!FirebaseService.isReady) return Stream.value(const <Story>[]);
 
+    final followingSet = followingIds.toSet();
     return FirebaseService.firestore
         .collection('stories')
-        .where('status', isEqualTo: 'active')
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs
-                  .map(Story.fromFirestore)
-                  .where((story) => !story.isExpired)
-                  .toList(growable: false),
-        );
+        .map((snapshot) {
+          final stories = snapshot.docs
+              .map(Story.fromFirestore)
+              .where((story) => story.isActive && story.mediaUrl.isNotEmpty)
+              .toList(growable: false);
+
+          if (followingSet.isNotEmpty) {
+            stories.sort((a, b) {
+              final aFollowed = followingSet.contains(a.authorId);
+              final bFollowed = followingSet.contains(b.authorId);
+              if (aFollowed != bFollowed) return aFollowed ? -1 : 1;
+              final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
+              final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
+              return bMs.compareTo(aMs);
+            });
+          }
+          return stories;
+        });
   }
 
   /// Marks a story as seen by the current user.

@@ -6,6 +6,8 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'firestore_parse.dart';
+
 class AppUser {
   const AppUser({
     required this.uid,
@@ -100,15 +102,19 @@ class AppUser {
   }) {
     final data = doc.data() ?? const <String, dynamic>{};
     return AppUser(
-      uid: (data['uid'] as String?) ?? doc.id,
-      name: (data['name'] as String?) ?? '',
+      uid: (data['uid'] as String?) ?? fallbackId ?? doc.id,
+      name: (data['name'] as String?) ??
+          (data['displayName'] as String?) ??
+          '',
       username: (data['username'] as String?) ?? '',
       email: (data['email'] as String?) ?? '',
-      avatar: (data['avatar'] as String?) ?? '',
+      avatar: (data['avatar'] as String?) ??
+          (data['photoURL'] as String?) ??
+          '',
       bio: (data['bio'] as String?) ?? '',
-      followersCount: (data['followersCount'] as num?)?.toInt() ?? 0,
-      followingCount: (data['followingCount'] as num?)?.toInt() ?? 0,
-      postsCount: (data['postsCount'] as num?)?.toInt() ?? 0,
+      followersCount: parseInt(data['followersCount']),
+      followingCount: parseInt(data['followingCount']),
+      postsCount: parseInt(data['postsCount']),
       mobileNumber: data['mobileNumber'] as String?,
       phoneNumber: data['phoneNumber'] as String?,
       bannerUrl: data['bannerUrl'] as String?,
@@ -116,32 +122,29 @@ class AppUser {
       dob: data['dob'] as String?,
       location: data['location'] as String?,
       link: data['link'] as String?,
-      isVerified: data['isVerified'] as bool? ?? data['verified'] as bool? ?? false,
-      isPrivate: data['isPrivate'] as bool? ?? false,
-      passkeyEnabled: data['passkeyEnabled'] as bool? ?? false,
+      isVerified: data['isVerified'] == true || data['verified'] == true,
+      isPrivate: data['isPrivate'] == true,
+      passkeyEnabled: data['passkeyEnabled'] == true,
       verificationStatus: data['verificationStatus'] as String?,
       whoCanComment: data['whoCanComment'] as String?,
       whoCanMention: data['whoCanMention'] as String?,
       whoCanMessage: data['whoCanMessage'] as String?,
-      offensiveFilter: data['offensiveFilter'] as bool? ?? false,
-      filterMessageRequests: data['filterMessageRequests'] as bool? ?? false,
+      offensiveFilter: data['offensiveFilter'] == true,
+      filterMessageRequests: data['filterMessageRequests'] == true,
       readReceipts: data['readReceipts'] as bool? ?? true,
-      blockedUserIds:
-          (data['blockedUserIds'] as List?)?.whereType<String>().toList() ??
-          const [],
-      highlights:
-          (data['highlights'] as List?)?.whereType<String>().toList() ?? const [],
+      blockedUserIds: parseStringList(data['blockedUserIds']),
+      highlights: parseStringList(data['highlights']),
       statusNote: data['statusNote'] as String?,
-      hasPassword: data['hasPassword'] as bool? ?? false,
+      hasPassword: data['hasPassword'] == true,
       authProvider: data['authProvider'] as String?,
       accountType: data['accountType'] as String? ?? 'personal',
-      isAdmin: data['isAdmin'] as bool? ?? false,
+      isAdmin: data['isAdmin'] == true,
       role: data['role'] as String?,
-      isBanned: data['isBanned'] as bool? ?? false,
+      isBanned: data['isBanned'] == true,
       banReason: data['banReason'] as String?,
-      bannedUntil: (data['bannedUntil'] as Timestamp?)?.toDate(),
+      bannedUntil: parseDateTime(data['bannedUntil']),
       notifMode: data['notifMode'] as String? ?? 'on',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      createdAt: parseDateTime(data['createdAt']),
     );
   }
 

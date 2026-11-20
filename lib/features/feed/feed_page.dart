@@ -1,23 +1,18 @@
 // ============================================================================
 //  ENNVO — FEED SCREEN
 //
-//  The Facebook-style home feed: a stories strip on top and the posts
-//  below. Ported from `src/pages/Home.tsx`.
-//
-//  Layout:
-//    • mobile header — search on the left, the "ennvo" wordmark in the
-//      middle, notifications and create on the right
-//    • the stories strip — squircle cards, `rounded-[24px]`, 96×142
-//      (110×162 on a wide screen)
-//    • the posts list
+//  The Facebook-style home feed: a stories strip on top, quick composer card,
+//  and the posts below. Ported from `src/pages/Home.tsx`.
 // ============================================================================
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/nav/page_type.dart';
 import '../../core/providers.dart';
@@ -26,12 +21,18 @@ import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../data/models/message.dart';
 import '../../data/models/post.dart';
+import '../../data/models/user.dart';
 import '../../data/services/chat_service.dart';
 import '../../data/services/comment_service.dart';
 import '../../data/services/media_download_service.dart';
 import '../../data/services/post_service.dart';
 import '../../data/services/story_service.dart';
+import '../../data/services/user_service.dart';
 import '../../shared/icons/lucide_icons.dart';
+import '../../shared/widgets/story_viewer.dart';
+import '../create/camera_page.dart';
+import '../create/create_page.dart';
+import '../messages/messages_page.dart' show ChatScreen;
 import '../reels/models/reel_comment.dart';
 import '../reels/widgets/comments_sheet.dart';
 import '../reels/widgets/share_sheet.dart';
@@ -65,10 +66,105 @@ class _FeedPageState extends ConsumerState<FeedPage> {
     return unique;
   }
 
-  /// Likes a post, or takes the like back.
-  ///
-  /// The icon answers at once and the write follows in the background: a
-  /// slow network never delays the tap.
+  void _openStoryViewer(List<Story> stories, int index) {
+    if (stories.isEmpty || index < 0 || index >= stories.length) return;
+    final uid = ref.read(authControllerProvider).user?.uid ?? '';
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StoryViewerPage(
+          stories: stories,
+          initialIndex: index,
+          currentUserId: uid,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickPhotoAndCreate() async {
+    try {
+      final photo = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        imageQuality: 88,
+      );
+      if (!mounted) return;
+      if (photo == null) {
+        ref.read(navControllerProvider).pushPage(AppPage.create);
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CreatePage(mediaFile: File(photo.path)),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ref.read(navControllerProvider).pushPage(AppPage.create);
+      }
+    }
+  }
+
+  Future<void> _pickVideoAndCreate() async {
+    try {
+      final video = await ImagePicker().pickVideo(source: ImageSource.gallery);
+      if (!mounted) return;
+      if (video == null) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const CameraPage()),
+        );
+        return;
+      }
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => CreatePage(mediaFile: File(video.path), isReel: false),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const CameraPage()),
+        );
+      }
+    }
+  }
+
+  Future<void> _openReelCapture() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const CameraPage()),
+    );
+  }
+
+  Future<void> _openAuthorProfile(AppPost post) async {
+    final me = ref.read(authControllerProvider).user;
+    if (post.authorId.isEmpty) return;
+
+    if (me != null && post.authorId == me.uid) {
+      ref.read(navControllerProvider).setCurrentPage(AppPage.profile);
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _AuthorProfileSheet(
+        authorId: post.authorId,
+        fallbackName: post.authorName,
+        fallbackUsername: post.authorUsername ?? '',
+        fallbackAvatar: post.authorAvatar,
+        currentUser: me,
+        onOpenChat: (conversationId, title) {
+          Navigator.of(sheetContext).pop();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  ChatScreen(conversationId: conversationId, title: title),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _toggleLike(AppPost post) {
     HapticFeedback.lightImpact();
     final liked = _liked.contains(post.id);
@@ -90,7 +186,6 @@ class _FeedPageState extends ConsumerState<FeedPage> {
     );
   }
 
-  /// Reposts a post, or takes the repost back.
   void _toggleRepost(AppPost post) {
     HapticFeedback.lightImpact();
     final reposted = _reposted.contains(post.id);
@@ -112,7 +207,6 @@ class _FeedPageState extends ConsumerState<FeedPage> {
     );
   }
 
-  /// The comments of a feed post, in the same sheet the reels use.
   Future<void> _openComments(AppPost post) async {
     final user = ref.read(authControllerProvider).user;
 
@@ -162,7 +256,6 @@ class _FeedPageState extends ConsumerState<FeedPage> {
     );
   }
 
-  /// Sends a post to the people the user already talks to.
   Future<void> _openShare(AppPost post) async {
     final user = ref.read(authControllerProvider).user;
     final conversations =
@@ -178,12 +271,10 @@ class _FeedPageState extends ConsumerState<FeedPage> {
       targets.add(
         ShareTarget(
           id: conversation.id,
-          name:
-              conversation.participantNames[otherId] ??
+          name: conversation.participantNames[otherId] ??
               conversation.groupName ??
               'Someone',
-          avatarUrl:
-              conversation.participantAvatars[otherId] ??
+          avatarUrl: conversation.participantAvatars[otherId] ??
               conversation.groupAvatar ??
               '',
           isOnline: false,
@@ -207,7 +298,7 @@ class _FeedPageState extends ConsumerState<FeedPage> {
               conversationId: target.id,
               messageId: 'local-${DateTime.now().microsecondsSinceEpoch}',
               senderId: user?.uid ?? '',
-              type: MessageType.image,
+              type: media != null ? MessageType.image : MessageType.text,
               content: message.isEmpty ? 'Shared a post' : message,
               mediaUrl: media,
               postId: post.id,
@@ -279,6 +370,7 @@ class _FeedPageState extends ConsumerState<FeedPage> {
     final feed = ref.watch(feedProvider);
     final stories = ref.watch(storiesProvider);
     final me = ref.watch(authControllerProvider).user;
+    final isLite = ref.watch(deviceProfileProvider).isLite;
 
     return Scaffold(
       backgroundColor: t.background,
@@ -305,13 +397,18 @@ class _FeedPageState extends ConsumerState<FeedPage> {
               child: stories.when(
                 loading: () => const SizedBox(height: 8),
                 error: (_, __) => const SizedBox.shrink(),
-                data: (items) => _StoriesStrip(
-                  stories: _uniqueStories(items),
-                  viewerAvatar: me?.avatar ?? '',
-                  viewerName: me?.name ?? '',
-                  onAdd: () =>
-                      ref.read(navControllerProvider).pushPage(AppPage.create),
-                ),
+                data: (items) {
+                  final unique = _uniqueStories(items);
+                  return _StoriesStrip(
+                    stories: unique,
+                    viewerId: me?.uid ?? '',
+                    viewerAvatar: me?.avatar ?? '',
+                    viewerName: me?.name ?? '',
+                    onAdd: () =>
+                        ref.read(navControllerProvider).pushPage(AppPage.create),
+                    onOpenStory: (index) => _openStoryViewer(unique, index),
+                  );
+                },
               ),
             ),
 
@@ -320,38 +417,35 @@ class _FeedPageState extends ConsumerState<FeedPage> {
               child: _ComposerCard(
                 name: me?.name ?? '',
                 avatar: me?.avatar ?? '',
+                isLite: isLite,
                 onTap: () =>
                     ref.read(navControllerProvider).pushPage(AppPage.create),
+                onPhoto: _pickPhotoAndCreate,
+                onVideo: _pickVideoAndCreate,
+                onReel: _openReelCapture,
               ),
             ),
 
             // --- posts --------------------------------------------------
             feed.when(
               loading: () => const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 60),
-                  child: Center(
-                    child: SizedBox(
-                      width: 26,
-                      height: 26,
-                      child: CircularProgressIndicator(strokeWidth: 2.4),
-                    ),
-                  ),
-                ),
+                child: _FeedLoadingSkeleton(),
               ),
-              error: (_, __) => const SliverToBoxAdapter(
+              error: (_, __) => SliverToBoxAdapter(
                 child: _FeedEmpty(
                   title: 'Could not load the feed',
-                  subtitle: 'Pull down to try again.',
+                  subtitle: 'Pull down or tap below to try again.',
+                  onRetry: _refresh,
                 ),
               ),
               data: (posts) {
                 if (posts.isEmpty) {
-                  return const SliverToBoxAdapter(
+                  return SliverToBoxAdapter(
                     child: _FeedEmpty(
                       title: 'Your feed is empty',
                       subtitle:
-                          'Follow a few people and their posts will show up here.',
+                          'Follow a few people or create your first post.',
+                      onRetry: _refresh,
                     ),
                   );
                 }
@@ -364,12 +458,14 @@ class _FeedPageState extends ConsumerState<FeedPage> {
                       return RepaintBoundary(
                         child: PostCard(
                           post: post,
+                          isLite: isLite,
                           isLiked: _liked.contains(post.id),
                           isReposted: _reposted.contains(post.id),
                           likesCount:
                               post.likesCount + (_liked.contains(post.id) ? 1 : 0),
                           onToggleLike: () => _toggleLike(post),
                           onToggleRepost: () => _toggleRepost(post),
+                          onOpenProfile: () => _openAuthorProfile(post),
                           onComment: () => _openComments(post),
                           onShare: () => _openShare(post),
                         ),
@@ -387,10 +483,198 @@ class _FeedPageState extends ConsumerState<FeedPage> {
 }
 
 // ============================================================================
+//  Author quick profile sheet (Follow + Message)
+// ============================================================================
+class _AuthorProfileSheet extends StatefulWidget {
+  const _AuthorProfileSheet({
+    required this.authorId,
+    required this.fallbackName,
+    required this.fallbackUsername,
+    required this.fallbackAvatar,
+    required this.currentUser,
+    required this.onOpenChat,
+  });
+
+  final String authorId;
+  final String fallbackName;
+  final String fallbackUsername;
+  final String fallbackAvatar;
+  final AppUser? currentUser;
+  final void Function(String conversationId, String title) onOpenChat;
+
+  @override
+  State<_AuthorProfileSheet> createState() => _AuthorProfileSheetState();
+}
+
+class _AuthorProfileSheetState extends State<_AuthorProfileSheet> {
+  AppUser? _author;
+  bool _following = false;
+  bool _loadingFollow = false;
+  bool _openingChat = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final profiles = await UserService.profiles([widget.authorId]);
+    final myUid = widget.currentUser?.uid ?? '';
+    final isFollow = myUid.isEmpty
+        ? false
+        : await UserService.isFollowing(myUid, widget.authorId);
+    if (!mounted) return;
+    setState(() {
+      if (profiles.isNotEmpty) _author = profiles.first;
+      _following = isFollow;
+    });
+  }
+
+  Future<void> _toggleFollow() async {
+    final me = widget.currentUser;
+    if (me == null || _loadingFollow) return;
+    final target = _author ??
+        AppUser(
+          uid: widget.authorId,
+          name: widget.fallbackName,
+          username: widget.fallbackUsername,
+          email: '',
+          avatar: widget.fallbackAvatar,
+          bio: '',
+          followersCount: 0,
+          followingCount: 0,
+          postsCount: 0,
+        );
+
+    setState(() => _loadingFollow = true);
+    if (_following) {
+      await UserService.unfollow(myId: me.uid, otherId: widget.authorId);
+    } else {
+      await UserService.follow(me: me, other: target);
+    }
+    if (!mounted) return;
+    setState(() {
+      _following = !_following;
+      _loadingFollow = false;
+    });
+  }
+
+  Future<void> _startMessage() async {
+    final me = widget.currentUser;
+    if (me == null || _openingChat) return;
+    setState(() => _openingChat = true);
+    final name = _author?.name ?? widget.fallbackName;
+    final avatar = _author?.avatar ?? widget.fallbackAvatar;
+    final id = await ChatService.createConversation(
+      currentUserId: me.uid,
+      otherUserId: widget.authorId,
+      otherUserName: name,
+      otherUserAvatar: avatar,
+      currentUserName: me.name,
+      currentUserAvatar: me.avatar,
+    );
+    if (!mounted) return;
+    setState(() => _openingChat = false);
+    widget.onOpenChat(id, name.isEmpty ? 'Chat' : name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    final name = (_author?.name.isNotEmpty == true)
+        ? _author!.name
+        : widget.fallbackName;
+    final username = (_author?.username.isNotEmpty == true)
+        ? _author!.username
+        : widget.fallbackUsername;
+    final avatar = (_author?.avatar.isNotEmpty == true)
+        ? _author!.avatar
+        : widget.fallbackAvatar;
+    final bio = _author?.bio ?? '';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: t.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.sheet),
+        ),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        20,
+        14,
+        20,
+        MediaQuery.paddingOf(context).bottom + 20,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: t.borderStrong,
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+          const SizedBox(height: 16),
+          _FeedAvatar(url: avatar, name: name, size: 68),
+          const SizedBox(height: 10),
+          Text(
+            name.isEmpty ? 'User' : name,
+            style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
+          ),
+          if (username.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              '@$username',
+              style: EnnvoText.caption.copyWith(color: t.textSecondary),
+            ),
+          ],
+          if (bio.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              bio,
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: EnnvoText.body.copyWith(
+                color: t.textSecondary,
+                fontSize: 13.5,
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          if (widget.currentUser != null)
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _loadingFollow ? null : _toggleFollow,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _following ? t.surfaceAlt : t.accent,
+                      foregroundColor: _following ? t.textPrimary : Colors.white,
+                    ),
+                    child: Text(_following ? 'Following' : 'Follow'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _openingChat ? null : _startMessage,
+                    child: const Text('Message'),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ============================================================================
 //  Header
-//
-//  Search on the left, the "ennvo" wordmark in the middle, the create button
-//  on the right. The notification bell is gone: the inbox tab carries it.
 // ============================================================================
 class _FeedHeader extends StatelessWidget {
   const _FeedHeader({required this.onSearch, required this.onCreate});
@@ -507,20 +791,25 @@ class _HeaderButton extends StatelessWidget {
 
 // ============================================================================
 //  The composer
-//
-//  The Facebook style box: the picture of the user, the question and the
-//  three ways to start a post. Every one of them opens the create screen.
 // ============================================================================
 class _ComposerCard extends StatelessWidget {
   const _ComposerCard({
     required this.name,
     required this.avatar,
+    required this.isLite,
     required this.onTap,
+    required this.onPhoto,
+    required this.onVideo,
+    required this.onReel,
   });
 
   final String name;
   final String avatar;
+  final bool isLite;
   final VoidCallback onTap;
+  final VoidCallback onPhoto;
+  final VoidCallback onVideo;
+  final VoidCallback onReel;
 
   @override
   Widget build(BuildContext context) {
@@ -533,7 +822,7 @@ class _ComposerCard extends StatelessWidget {
           color: t.surface,
           borderRadius: BorderRadius.circular(AppRadius.xl),
           border: Border.all(color: t.border),
-          boxShadow: t.isDark
+          boxShadow: (t.isDark || isLite)
               ? null
               : const [
                   BoxShadow(
@@ -561,6 +850,7 @@ class _ComposerCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: t.surfaceAlt,
                           borderRadius: BorderRadius.circular(21),
+                          border: Border.all(color: t.border),
                         ),
                         alignment: Alignment.centerLeft,
                         child: Text(
@@ -587,19 +877,19 @@ class _ComposerCard extends StatelessWidget {
                     icon: LucideIcons.image,
                     label: 'Photo',
                     color: const Color(0xFF22C55E),
-                    onTap: onTap,
+                    onTap: onPhoto,
                   ),
                   _ComposerAction(
                     icon: LucideIcons.video,
                     label: 'Video',
                     color: const Color(0xFFEF4444),
-                    onTap: onTap,
+                    onTap: onVideo,
                   ),
                   _ComposerAction(
                     icon: LucideIcons.film,
                     label: 'Reel',
                     color: t.accent,
-                    onTap: onTap,
+                    onTap: onReel,
                   ),
                 ],
               ),
@@ -677,7 +967,10 @@ class _FeedAvatar extends StatelessWidget {
         color: t.surfaceAlt,
         image: url.isEmpty
             ? null
-            : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
+            : DecorationImage(
+                image: ResizeImage(NetworkImage(url), width: 120),
+                fit: BoxFit.cover,
+              ),
       ),
       alignment: Alignment.center,
       child: url.isEmpty
@@ -690,26 +983,25 @@ class _FeedAvatar extends StatelessWidget {
   }
 }
 
-
 // ============================================================================
 //  Stories strip
-//
-//  The Facebook shape: one rounded card per author, the picture filling it,
-//  the avatar on the top left and the name on the bottom over a soft scrim.
-//  The first card is always the viewer's own — "Add story".
 // ============================================================================
 class _StoriesStrip extends StatelessWidget {
   const _StoriesStrip({
     required this.stories,
+    required this.viewerId,
     required this.viewerAvatar,
     required this.viewerName,
     required this.onAdd,
+    required this.onOpenStory,
   });
 
   final List<Story> stories;
+  final String viewerId;
   final String viewerAvatar;
   final String viewerName;
   final VoidCallback onAdd;
+  final ValueChanged<int> onOpenStory;
 
   @override
   Widget build(BuildContext context) {
@@ -730,6 +1022,7 @@ class _StoriesStrip extends StatelessWidget {
               fallbackName: viewerName,
               mediaUrl: viewerAvatar,
               isAdd: true,
+              seen: true,
               onTap: onAdd,
             );
           }
@@ -739,8 +1032,9 @@ class _StoriesStrip extends StatelessWidget {
             avatarUrl: story.authorAvatar,
             fallbackName: story.authorName,
             mediaUrl: story.mediaUrl,
+            seen: viewerId.isNotEmpty && story.viewers.contains(viewerId),
             isDark: t.isDark,
-            onTap: () {},
+            onTap: () => onOpenStory(index - 1),
           );
         },
       ),
@@ -756,6 +1050,7 @@ class _StoryTile extends StatelessWidget {
     required this.mediaUrl,
     required this.onTap,
     this.isAdd = false,
+    this.seen = false,
     this.isDark = false,
   });
 
@@ -765,6 +1060,7 @@ class _StoryTile extends StatelessWidget {
   final String mediaUrl;
   final VoidCallback onTap;
   final bool isAdd;
+  final bool seen;
   final bool isDark;
 
   @override
@@ -779,10 +1075,9 @@ class _StoryTile extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              // --- the picture --------------------------------------------
               if (mediaUrl.isEmpty)
-                DecoratedBox(
-                  decoration: const BoxDecoration(
+                const DecoratedBox(
+                  decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -803,7 +1098,6 @@ class _StoryTile extends StatelessWidget {
                   ),
                 ),
 
-              // --- the scrim that keeps the name readable -----------------
               const DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
@@ -820,7 +1114,6 @@ class _StoryTile extends StatelessWidget {
                 ),
               ),
 
-              // --- the avatar ---------------------------------------------
               Positioned(
                 top: 8,
                 left: 8,
@@ -828,10 +1121,10 @@ class _StoryTile extends StatelessWidget {
                   url: avatarUrl,
                   name: fallbackName,
                   isAdd: isAdd,
+                  seen: seen,
                 ),
               ),
 
-              // --- the name ------------------------------------------------
               Positioned(
                 left: 8,
                 right: 8,
@@ -864,11 +1157,13 @@ class _StoryAvatar extends StatelessWidget {
     required this.url,
     required this.name,
     required this.isAdd,
+    required this.seen,
   });
 
   final String url;
   final String name;
   final bool isAdd;
+  final bool seen;
 
   @override
   Widget build(BuildContext context) {
@@ -884,7 +1179,7 @@ class _StoryAvatar extends StatelessWidget {
             padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white,
+              color: (!isAdd && !seen) ? const Color(0xFF0EA5E9) : Colors.white,
               boxShadow: const [
                 BoxShadow(color: Color(0x40000000), blurRadius: 6),
               ],
@@ -896,7 +1191,7 @@ class _StoryAvatar extends StatelessWidget {
                 image: url.isEmpty
                     ? null
                     : DecorationImage(
-                        image: NetworkImage(url),
+                        image: ResizeImage(NetworkImage(url), width: 100),
                         fit: BoxFit.cover,
                       ),
               ),
@@ -942,20 +1237,99 @@ class _StoryAvatar extends StatelessWidget {
 }
 
 // ============================================================================
-//  Empty state
+//  Loading skeleton & empty state
 // ============================================================================
+class _FeedLoadingSkeleton extends StatelessWidget {
+  const _FeedLoadingSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.tokens;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 32),
+      child: Column(
+        children: [
+          for (var i = 0; i < 2; i++)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: t.surface,
+                borderRadius: BorderRadius.circular(AppRadius.xl),
+                border: Border.all(color: t.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: t.surfaceAlt,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 120,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: t.surfaceAlt,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            width: 72,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: t.surfaceAlt,
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    height: 200,
+                    decoration: BoxDecoration(
+                      color: t.surfaceAlt,
+                      borderRadius: BorderRadius.circular(AppRadius.postMedia),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _FeedEmpty extends StatelessWidget {
-  const _FeedEmpty({required this.title, required this.subtitle});
+  const _FeedEmpty({
+    required this.title,
+    required this.subtitle,
+    this.onRetry,
+  });
 
   final String title;
   final String subtitle;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 64),
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 56),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -977,6 +1351,14 @@ class _FeedEmpty extends StatelessWidget {
             textAlign: TextAlign.center,
             style: EnnvoText.body.copyWith(color: t.textSecondary),
           ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const LucideIcon(LucideIcons.refreshCw, size: 15),
+              label: const Text('Try again'),
+            ),
+          ],
         ],
       ),
     );

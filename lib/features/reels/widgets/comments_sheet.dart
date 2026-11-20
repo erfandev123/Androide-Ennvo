@@ -632,13 +632,18 @@ class _Composer extends StatelessWidget {
           // that holds the text and the small buttons. The hint carries no
           // border and no ring of its own — the box is the only shape.
           Expanded(
-            child: Container(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
               constraints: const BoxConstraints(minHeight: 40),
               padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
               decoration: BoxDecoration(
-                color: t.surfaceAlt,
+                color: focusNode.hasFocus ? t.surface : t.surfaceAlt,
                 borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: t.border),
+                border: Border.all(
+                  color: focusNode.hasFocus ? _kCommentBlue : t.border,
+                  width: focusNode.hasFocus ? 1.5 : 1.0,
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,

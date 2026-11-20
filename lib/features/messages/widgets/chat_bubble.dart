@@ -4,22 +4,18 @@
 //  Every message shape the chat supports, ported from
 //  `src/pages/Messages.tsx`.
 //
-//  Geometry:
-//    • the base radius is 24px (`rounded-3xl`)
-//    • the tail corner of the last bubble in a group is squared to 6px
-//    • two messages belong to the same group when the sender matches and
-//      they are less than 60 seconds apart
-//
-//  The bubble supports a text body, an image, a video, an album, a reel, a
-//  sticker, a voice note, a call summary and a document — plus a reply
-//  preview, a reaction badge and the swipe-to-reply gesture.
+//  Remember: `.chat-view-container` stays light even in dark mode, so
+//  received bubbles, reply previews, system chips, and voice bubbles always
+//  use high-contrast light-canvas tokens on `#FFFFFF`.
 // ============================================================================
 
+import 'dart:async';
+
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/theme/motion.dart';
-import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/message.dart';
 import '../../../shared/icons/lucide_icons.dart';
@@ -56,17 +52,16 @@ class ChatBubble extends StatefulWidget {
 }
 
 class _ChatBubbleState extends State<ChatBubble> {
-  // --- the swipe-to-reply gesture -------------------------------------
   double _drag = 0;
   bool _dragging = false;
 
   @override
   Widget build(BuildContext context) {
     final message = widget.message;
-    final t = context.tokens;
 
     // An emoji-only message has no bubble behind it.
-    final isEmojiOnly = _isEmojiOnly(message.content);
+    final isEmojiOnly =
+        message.type == MessageType.text && _isEmojiOnly(message.content);
 
     final radius = _radiusFor(
       isMine: widget.isMine,
@@ -74,25 +69,39 @@ class _ChatBubbleState extends State<ChatBubble> {
       isLast: widget.isLastInGroup,
     );
 
+    final hasReaction =
+        message.reaction != null && message.reaction!.trim().isNotEmpty;
+
     final bubble = Container(
       decoration: BoxDecoration(
-        gradient: widget.isMine && !isEmojiOnly
+        gradient: widget.isMine &&
+                !isEmojiOnly &&
+                message.type != MessageType.sticker &&
+                message.type != MessageType.system
             ? const LinearGradient(
                 colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
               )
             : null,
         color: widget.isMine
             ? null
-            : (isEmojiOnly ? Colors.transparent : t.chatBubbleTheirs),
+            : (isEmojiOnly ||
+                    message.type == MessageType.sticker ||
+                    message.type == MessageType.system
+                ? Colors.transparent
+                : const Color(0xFFF2F4F7)),
         borderRadius: radius,
       ),
       child: _body(context, isEmojiOnly),
     );
 
+    if (message.type == MessageType.system) {
+      return Center(child: _body(context, false));
+    }
+
     return Padding(
       padding: EdgeInsets.only(
-        top: widget.isFirstInGroup ? 8 : 1,
-        bottom: widget.isLastInGroup ? 8 : 1,
+        top: widget.isFirstInGroup ? 8 : 2,
+        bottom: (widget.isLastInGroup ? 8 : 2) + (hasReaction ? 10 : 0),
       ),
       child: Row(
         mainAxisAlignment: widget.isMine
@@ -106,14 +115,18 @@ class _ChatBubbleState extends State<ChatBubble> {
               child: widget.isLastInGroup && widget.showAvatar
                   ? CircleAvatar(
                       radius: 14,
+                      backgroundColor: const Color(0xFFE0F2FE),
                       backgroundImage: widget.avatarUrl.isEmpty
                           ? null
-                          : NetworkImage(widget.avatarUrl),
+                          : ResizeImage(
+                              NetworkImage(widget.avatarUrl),
+                              width: 96,
+                            ),
                       child: widget.avatarUrl.isEmpty
-                          ? Icon(
+                          ? const Icon(
                               Icons.person,
                               size: 14,
-                              color: t.textTertiary,
+                              color: Color(0xFF0369A1),
                             )
                           : null,
                     )
@@ -127,7 +140,6 @@ class _ChatBubbleState extends State<ChatBubble> {
                 GestureDetector(
                   onHorizontalDragStart: (_) => setState(() => _dragging = true),
                   onHorizontalDragUpdate: (details) {
-                    // Only a rightward swipe means "reply".
                     if (details.delta.dx <= 0) return;
                     setState(() {
                       _drag = (_drag + details.delta.dx * 0.44).clamp(0, 56);
@@ -152,7 +164,38 @@ class _ChatBubbleState extends State<ChatBubble> {
                     child: bubble,
                   ),
                 ),
-                // The reply indicator that fades in with the drag.
+
+                // --- reaction pill -------------------------------------
+                if (hasReaction)
+                  Positioned(
+                    right: widget.isMine ? 8 : null,
+                    left: widget.isMine ? null : 8,
+                    bottom: -12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x14000000),
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        message.reaction!,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ),
+
+                // --- swipe-to-reply indicator --------------------------
                 if (!widget.isMine)
                   Positioned(
                     left: -32,
@@ -194,27 +237,25 @@ class _ChatBubbleState extends State<ChatBubble> {
 
   Widget _body(BuildContext context, bool isEmojiOnly) {
     final message = widget.message;
-    final t = context.tokens;
-    final textColor = widget.isMine
-        ? t.chatTextMine
-        : t.chatTextTheirs;
+    final textColor =
+        widget.isMine ? Colors.white : const Color(0xFF111827);
 
     switch (message.type) {
       case MessageType.system:
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
             decoration: BoxDecoration(
-              color: t.isDark ? const Color(0xFF171717) : const Color(0xFFF5F5F5),
+              color: const Color(0xFFF3F4F6),
               borderRadius: BorderRadius.circular(AppRadius.pill),
-              border: Border.all(color: t.border),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
             ),
             child: Text(
               message.content,
               textAlign: TextAlign.center,
               style: EnnvoText.caption.copyWith(
-                color: t.isDark ? const Color(0xFFA3A3A3) : const Color(0xFF525252),
+                color: const Color(0xFF4B5563),
                 fontSize: 11.5,
               ),
             ),
@@ -239,7 +280,7 @@ class _ChatBubbleState extends State<ChatBubble> {
           );
         }
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -263,7 +304,7 @@ class _ChatBubbleState extends State<ChatBubble> {
 
       case MessageType.image:
       case MessageType.album:
-        return _MediaBubble(message: message, isMine: widget.isMine);
+        return _MediaBubble(message: message);
 
       case MessageType.video:
         return _VideoBubble(message: message);
@@ -273,14 +314,17 @@ class _ChatBubbleState extends State<ChatBubble> {
 
       case MessageType.sticker:
         return SizedBox(
-          width: 180,
-          height: 180,
+          width: 156,
+          height: 156,
           child: message.stickerUrl == null || message.stickerUrl!.isEmpty
               ? const SizedBox.shrink()
-              : Image.network(
-                  message.stickerUrl!,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              : ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Image.network(
+                    message.stickerUrl!,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
                 ),
         );
 
@@ -345,15 +389,15 @@ class _ReplyPreview extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isMine
-            ? Colors.black.withValues(alpha: 0.15)
-            : const Color(0xCCF3F4F6),
+            ? Colors.black.withValues(alpha: 0.16)
+            : const Color(0xFFE5E7EB),
         borderRadius: BorderRadius.circular(AppRadius.md),
         border: Border(
           left: BorderSide(
             color: isMine
-                ? Colors.white.withValues(alpha: 0.7)
-                : const Color(0xFFA855F7),
-            width: 2,
+                ? Colors.white.withValues(alpha: 0.75)
+                : const Color(0xFF0EA5E9),
+            width: 2.5,
           ),
         ),
       ),
@@ -362,8 +406,10 @@ class _ReplyPreview extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: EnnvoText.caption.copyWith(
-          color: isMine ? Colors.white.withValues(alpha: 0.95) : const Color(0xFF1F2937),
-          fontSize: 11,
+          color: isMine
+              ? Colors.white.withValues(alpha: 0.95)
+              : const Color(0xFF1F2937),
+          fontSize: 11.5,
           fontStyle: FontStyle.italic,
         ),
       ),
@@ -375,10 +421,40 @@ class _ReplyPreview extends StatelessWidget {
 //  The image bubble
 // ============================================================================
 class _MediaBubble extends StatelessWidget {
-  const _MediaBubble({required this.message, required this.isMine});
+  const _MediaBubble({required this.message});
 
   final AppMessage message;
-  final bool isMine;
+
+  void _openPreview(BuildContext context, String url) {
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (dialogContext) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            Center(
+              child: InteractiveViewer(
+                child: Image.network(url, fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.paddingOf(dialogContext).top + 12,
+              right: 12,
+              child: IconButton(
+                onPressed: () => Navigator.of(dialogContext).maybePop(),
+                icon: const LucideIcon(
+                  LucideIcons.x,
+                  size: 22,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -386,41 +462,29 @@ class _MediaBubble extends StatelessWidget {
         (message.mediaUrls.isNotEmpty ? message.mediaUrls.first : '');
     if (url.isEmpty) return const SizedBox.shrink();
 
-    return Stack(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(AppRadius.lg),
-          child: Image.network(
-            url,
+    return GestureDetector(
+      onTap: () => _openPreview(context, url),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        child: Image.network(
+          url,
+          width: 240,
+          height: 290,
+          fit: BoxFit.cover,
+          cacheWidth: 640,
+          errorBuilder: (_, __, ___) => Container(
             width: 240,
-            height: 300,
-            fit: BoxFit.cover,
-            cacheWidth: 640,
-            errorBuilder: (_, __, ___) => Container(
-              width: 240,
-              height: 300,
-              color: const Color(0x14000000),
-            ),
-          ),
-        ),
-        Positioned(
-          right: 6,
-          bottom: 6,
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.6),
-              shape: BoxShape.circle,
-            ),
+            height: 290,
+            color: const Color(0x14000000),
+            alignment: Alignment.center,
             child: const LucideIcon(
-              LucideIcons.download,
-              size: 12,
-              strokeWidth: 2.2,
-              color: Colors.white,
+              LucideIcons.image,
+              size: 28,
+              color: Color(0xFF94A3B8),
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -435,6 +499,8 @@ class _VideoBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final thumb = message.thumbnailUrl ?? '';
+
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -444,13 +510,21 @@ class _VideoBubble extends StatelessWidget {
             width: 220,
             height: 260,
             color: Colors.black,
+            child: thumb.isEmpty
+                ? null
+                : Image.network(
+                    thumb,
+                    fit: BoxFit.cover,
+                    cacheWidth: 640,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
           ),
         ),
         Container(
-          width: 40,
-          height: 40,
+          width: 44,
+          height: 44,
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
+            color: Colors.white.withValues(alpha: 0.92),
             shape: BoxShape.circle,
           ),
           alignment: Alignment.center,
@@ -476,29 +550,45 @@ class _ReelBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final thumb = message.thumbnailUrl ?? message.mediaUrl ?? '';
+
     return SizedBox(
-      width: 128,
-      height: 165,
+      width: 136,
+      height: 176,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: Container(
-          color: const Color(0xFF171717),
-          alignment: Alignment.center,
-          child: Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.95),
-              shape: BoxShape.circle,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              color: const Color(0xFF171717),
+              child: thumb.isEmpty
+                  ? null
+                  : Image.network(
+                      thumb,
+                      fit: BoxFit.cover,
+                      cacheWidth: 400,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
             ),
-            alignment: Alignment.center,
-            child: const LucideIcon(
-              LucideIcons.play,
-              size: 14,
-              strokeWidth: 2,
-              color: Color(0xFF111827),
+            Center(
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.95),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: const LucideIcon(
+                  LucideIcons.play,
+                  size: 16,
+                  strokeWidth: 2,
+                  color: Color(0xFF111827),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -519,8 +609,15 @@ class _VoiceBubble extends StatefulWidget {
 }
 
 class _VoiceBubbleState extends State<_VoiceBubble> {
+  AudioPlayer? _player;
+  StreamSubscription<Duration>? _posSub;
+  StreamSubscription<Duration>? _durSub;
+  StreamSubscription<void>? _completeSub;
+  Timer? _fallbackTimer;
+
   bool _playing = false;
   double _progress = 0;
+  Duration _duration = Duration.zero;
 
   static const List<double> _heights = [
     28, 48, 36, 60, 44, 76, 52, 90, 64, 100, 72, 88, 56, 76, 48, 84,
@@ -528,14 +625,89 @@ class _VoiceBubbleState extends State<_VoiceBubble> {
   ];
 
   @override
+  void dispose() {
+    _fallbackTimer?.cancel();
+    _posSub?.cancel();
+    _durSub?.cancel();
+    _completeSub?.cancel();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _togglePlay() async {
+    if (_playing) {
+      _fallbackTimer?.cancel();
+      await _player?.pause();
+      if (mounted) setState(() => _playing = false);
+      return;
+    }
+
+    final url = widget.message.mediaUrl?.trim() ?? '';
+    if (url.isNotEmpty) {
+      try {
+        if (_player == null) {
+          final player = AudioPlayer();
+          _player = player;
+          _durSub = player.onDurationChanged.listen((d) {
+            if (mounted && d.inMilliseconds > 0) {
+              _duration = d;
+            }
+          });
+          _posSub = player.onPositionChanged.listen((p) {
+            if (!mounted) return;
+            final totalMs = _duration.inMilliseconds > 0
+                ? _duration.inMilliseconds
+                : ((widget.message.voiceDuration ?? 5) * 1000);
+            if (totalMs > 0) {
+              setState(
+                () => _progress = (p.inMilliseconds / totalMs).clamp(0.0, 1.0),
+              );
+            }
+          });
+          _completeSub = player.onPlayerComplete.listen((_) {
+            if (mounted) {
+              setState(() {
+                _playing = false;
+                _progress = 0;
+              });
+            }
+          });
+        }
+        await _player!.play(UrlSource(url));
+        if (mounted) setState(() => _playing = true);
+        return;
+      } catch (_) {
+        // Fallback smoothly if audio plugin/network is unavailable.
+      }
+    }
+
+    final totalSec = (widget.message.voiceDuration ?? 4).clamp(1, 60);
+    setState(() => _playing = true);
+    _fallbackTimer?.cancel();
+    _fallbackTimer = Timer.periodic(const Duration(milliseconds: 100), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final next = _progress + (0.1 / totalSec);
+      if (next >= 1.0) {
+        t.cancel();
+        setState(() {
+          _playing = false;
+          _progress = 0;
+        });
+      } else {
+        setState(() => _progress = next);
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final t = context.tokens;
-    final filled = widget.isMine
-        ? Colors.white
-        : (t.isDark ? const Color(0xFF38BDF8) : const Color(0xFF0EA5E9));
+    final filled = widget.isMine ? Colors.white : const Color(0xFF0EA5E9);
     final empty = widget.isMine
         ? Colors.white.withValues(alpha: 0.35)
-        : (t.isDark ? const Color(0xFF404040) : const Color(0xFFD4D4D8));
+        : const Color(0xFFD1D5DB);
     final seconds = widget.message.voiceDuration ?? 0;
 
     return Container(
@@ -547,28 +719,21 @@ class _VoiceBubbleState extends State<_VoiceBubble> {
                 colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
               )
             : null,
-        color: widget.isMine
-            ? null
-            : (t.isDark ? const Color(0xFF1F242D) : const Color(0xFFF5F5F5)),
+        color: widget.isMine ? null : const Color(0xFFF2F4F7),
         borderRadius: BorderRadius.circular(22),
-        border: widget.isMine
-            ? null
-            : Border.all(color: t.border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _playing = !_playing),
+            onTap: _togglePlay,
             child: Container(
               width: 34,
               height: 34,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: widget.isMine
-                    ? Colors.white
-                    : (t.isDark ? const Color(0xFF0EA5E9) : const Color(0xFF0EA5E9)),
+                color: widget.isMine ? Colors.white : const Color(0xFF0EA5E9),
               ),
               alignment: Alignment.center,
               child: LucideIcon(
@@ -580,13 +745,18 @@ class _VoiceBubbleState extends State<_VoiceBubble> {
             ),
           ),
           const SizedBox(width: 10),
-          // The waveform.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTapDown: (details) {
-              setState(() {
-                _progress = (details.localPosition.dx / 200).clamp(0.0, 1.0);
-              });
+            onTapDown: (details) async {
+              final next = (details.localPosition.dx / 120).clamp(0.0, 1.0);
+              setState(() => _progress = next);
+              if (_player != null && _duration.inMilliseconds > 0) {
+                await _player!.seek(
+                  Duration(
+                    milliseconds: (_duration.inMilliseconds * next).round(),
+                  ),
+                );
+              }
             },
             child: SizedBox(
               width: 120,
@@ -600,8 +770,7 @@ class _VoiceBubbleState extends State<_VoiceBubble> {
                       for (var i = 0; i < _heights.length; i++)
                         Container(
                           width: 2.5,
-                          height: (_heights[i] * 0.24)
-                              .clamp(4.0, 28.0),
+                          height: (_heights[i] * 0.24).clamp(4.0, 28.0),
                           decoration: BoxDecoration(
                             color: i / _heights.length <= _progress
                                 ? filled
@@ -611,9 +780,8 @@ class _VoiceBubbleState extends State<_VoiceBubble> {
                         ),
                     ],
                   ),
-                  // The scrub pip.
                   Positioned(
-                    left: (_progress * 118).clamp(0.0, 118.0),
+                    left: (_progress * 110).clamp(0.0, 110.0),
                     child: Container(
                       width: 10,
                       height: 10,
@@ -622,7 +790,7 @@ class _VoiceBubbleState extends State<_VoiceBubble> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: filled.withValues(alpha: 0.6),
+                            color: filled.withValues(alpha: 0.55),
                             blurRadius: 6,
                           ),
                         ],
@@ -638,9 +806,9 @@ class _VoiceBubbleState extends State<_VoiceBubble> {
             '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}',
             style: EnnvoText.tiny.copyWith(
               color: widget.isMine
-                  ? Colors.white.withValues(alpha: 0.8)
-                  : t.textSecondary,
-              fontSize: 10,
+                  ? Colors.white.withValues(alpha: 0.85)
+                  : const Color(0xFF6B7280),
+              fontSize: 10.5,
             ),
           ),
         ],

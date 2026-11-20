@@ -36,7 +36,7 @@ class CommentService {
     if (!FirebaseService.isReady) return Stream.value(const <ReelComment>[]);
 
     return _collection(postId)
-        .orderBy('createdAt')
+        .limit(120)
         .snapshots()
         .map((snapshot) => group(snapshot.docs, postId: postId));
   }
@@ -46,16 +46,26 @@ class CommentService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
     required String postId,
   }) {
+    final sortedDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.of(docs);
+    sortedDocs.sort((a, b) {
+      final aComment = ReelComment.fromFirestore(a);
+      final bComment = ReelComment.fromFirestore(b);
+      final aMs = aComment.createdAt?.millisecondsSinceEpoch ?? 0;
+      final bMs = bComment.createdAt?.millisecondsSinceEpoch ?? 0;
+      return aMs.compareTo(bMs);
+    });
+
     final byId = <String, ReelComment>{};
     final replies = <String, List<ReelComment>>{};
 
-    for (final doc in docs) {
+    for (final doc in sortedDocs) {
       final comment = ReelComment.fromFirestore(doc);
       byId[comment.id] = comment;
     }
 
-    for (final doc in docs) {
-      final parentId = doc.data()['parentId'] as String?;
+    for (final doc in sortedDocs) {
+      final data = doc.data();
+      final parentId = (data['parentId'] ?? data['replyToId']) as String?;
       if (parentId == null || parentId.isEmpty) continue;
       final child = byId[doc.id];
       if (child == null) continue;
@@ -63,10 +73,11 @@ class CommentService {
     }
 
     final roots = <ReelComment>[];
-    for (final doc in docs) {
+    for (final doc in sortedDocs) {
       final comment = byId[doc.id];
       if (comment == null) continue;
-      final parentId = doc.data()['parentId'] as String?;
+      final data = doc.data();
+      final parentId = (data['parentId'] ?? data['replyToId']) as String?;
       if (parentId != null && parentId.isNotEmpty) continue;
       final own = replies[comment.id] ?? const <ReelComment>[];
       roots.add(comment.copyWith(replies: own));

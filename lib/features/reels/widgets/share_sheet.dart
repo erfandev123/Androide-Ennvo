@@ -127,6 +127,7 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
   final TextEditingController _message = TextEditingController();
   final TextEditingController _search = TextEditingController();
   final FocusNode _messageFocus = FocusNode();
+  final FocusNode _searchFocus = FocusNode();
 
   /// The people that are picked.
   final Set<String> _selected = <String>{};
@@ -153,18 +154,27 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
       .where((target) => _selected.contains(target.id))
       .toList(growable: false);
 
+  void _onFocusChange() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
     _settings = widget.settings;
     _reposted = widget.hasReposted;
+    _messageFocus.addListener(_onFocusChange);
+    _searchFocus.addListener(_onFocusChange);
   }
 
   @override
   void dispose() {
+    _messageFocus.removeListener(_onFocusChange);
+    _searchFocus.removeListener(_onFocusChange);
     _message.dispose();
     _search.dispose();
     _messageFocus.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -336,16 +346,20 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
             ),
 
             // --- search the people ---------------------------------------
-            if (widget.targets.length > 8)
+            if (widget.targets.length > 4)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-                child: Container(
-                  height: 34,
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  height: 36,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
-                    color: t.surfaceAlt,
+                    color: _searchFocus.hasFocus ? t.surface : t.surfaceAlt,
                     borderRadius: BorderRadius.circular(AppRadius.pill),
-                    border: Border.all(color: t.border),
+                    border: Border.all(
+                      color: _searchFocus.hasFocus ? _kShareBlue : t.border,
+                      width: _searchFocus.hasFocus ? 1.5 : 1.0,
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -353,16 +367,19 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
                         LucideIcons.search,
                         size: 15,
                         strokeWidth: 2.2,
-                        color: t.textTertiary,
+                        color: _searchFocus.hasFocus
+                            ? _kShareBlue
+                            : t.textTertiary,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: TextField(
                           controller: _search,
+                          focusNode: _searchFocus,
                           onChanged: (_) => setState(() {}),
                           style: EnnvoText.body.copyWith(
                             color: t.textPrimary,
-                            fontSize: 13,
+                            fontSize: 13.5,
                           ),
                           cursorColor: _kShareBlue,
                           decoration: InputDecoration(
@@ -378,6 +395,23 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
                           ),
                         ),
                       ),
+                      if (_search.text.isNotEmpty)
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () {
+                            _search.clear();
+                            setState(() {});
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.only(left: 4),
+                            child: LucideIcon(
+                              LucideIcons.x,
+                              size: 14,
+                              strokeWidth: 2.3,
+                              color: t.textTertiary,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -436,13 +470,17 @@ class _ReelShareSheetState extends State<ReelShareSheet> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: Container(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 140),
               constraints: const BoxConstraints(minHeight: 44),
               padding: const EdgeInsets.symmetric(horizontal: 16),
               decoration: BoxDecoration(
-                color: t.surfaceAlt,
+                color: _messageFocus.hasFocus ? t.surface : t.surfaceAlt,
                 borderRadius: BorderRadius.circular(22),
-                border: Border.all(color: t.border),
+                border: Border.all(
+                  color: _messageFocus.hasFocus ? _kShareBlue : t.border,
+                  width: _messageFocus.hasFocus ? 1.5 : 1.0,
+                ),
               ),
               alignment: Alignment.centerLeft,
               child: TextField(

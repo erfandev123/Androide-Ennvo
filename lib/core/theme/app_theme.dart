@@ -96,7 +96,7 @@ class EnnvoTheme {
       // --- Inputs -------------------------------------------------------
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: t.isDark ? const Color(0xFF12121A) : Colors.white,
+        fillColor: t.isDark ? const Color(0xFF14141F) : const Color(0xFFF8FAFC),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 20,
           vertical: 14,
@@ -114,7 +114,7 @@ class EnnvoTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
-          borderSide: BorderSide(color: t.accent, width: 1.4),
+          borderSide: BorderSide(color: t.accent, width: 1.6),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
@@ -122,7 +122,7 @@ class EnnvoTheme {
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
-          borderSide: BorderSide(color: t.danger, width: 1.4),
+          borderSide: BorderSide(color: t.danger, width: 1.6),
         ),
       ),
 

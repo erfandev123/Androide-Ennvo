@@ -27,6 +27,9 @@ class ChatService {
   // -------------------------------------------------------------------
 
   /// Subscribes to every conversation the user takes part in.
+  ///
+  /// Sorted client-side by `updatedAt` descending so no Firestore composite
+  /// index on `participantIds + updatedAt` is needed.
   static Stream<List<Conversation>> subscribeConversations(String userId) {
     if (!FirebaseService.isReady || userId.isEmpty) {
       return Stream.value(const <Conversation>[]);
@@ -35,15 +38,19 @@ class ChatService {
     return FirebaseService.firestore
         .collection('conversations')
         .where('participantIds', arrayContains: userId)
-        .orderBy('updatedAt', descending: true)
         .limit(60)
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs.map(Conversation.fromFirestore).toList(
-                growable: false,
-              ),
-        );
+        .map((snapshot) {
+          final items = snapshot.docs
+              .map(Conversation.fromFirestore)
+              .toList(growable: false);
+          items.sort((a, b) {
+            final aMs = a.updatedAt?.millisecondsSinceEpoch ?? 0;
+            final bMs = b.updatedAt?.millisecondsSinceEpoch ?? 0;
+            return bMs.compareTo(aMs);
+          });
+          return items;
+        });
   }
 
   /// Creates a direct conversation, or returns the existing one.
@@ -52,6 +59,8 @@ class ChatService {
     required String otherUserId,
     required String otherUserName,
     required String otherUserAvatar,
+    String currentUserName = 'You',
+    String currentUserAvatar = '',
   }) async {
     final id = Conversation.directId(currentUserId, otherUserId);
 
@@ -64,11 +73,11 @@ class ChatService {
         await ref.set({
           'participantIds': [currentUserId, otherUserId],
           'participantNames': {
-            currentUserId: 'You',
+            currentUserId: currentUserName,
             otherUserId: otherUserName,
           },
           'participantAvatars': {
-            currentUserId: '',
+            currentUserId: currentUserAvatar,
             otherUserId: otherUserAvatar,
           },
           'lastMessage': '',
@@ -135,12 +144,12 @@ class ChatService {
     }
   }
 
-  /// Sends a message.
+  /// Sends a message. Returns `true` when committed, `false` otherwise.
   ///
   /// The document id is a client generated id, so an optimistic local
   /// message and the server copy share the same id and the message does
   /// not flicker when the snapshot arrives.
-  static Future<void> sendMessage({
+  static Future<bool> sendMessage({
     required String conversationId,
     required String messageId,
     required String senderId,
@@ -152,8 +161,9 @@ class ChatService {
     String? postId,
     int? voiceDuration,
     ReplyPreview? replyTo,
+    String? recipientId,
   }) async {
-    if (!FirebaseService.isReady) return;
+    if (!FirebaseService.isReady) return false;
     try {
       final batch = FirebaseService.firestore.batch();
 
@@ -184,20 +194,77 @@ class ChatService {
         },
       );
 
+      final summaryText = switch (type) {
+        MessageType.image => content.isNotEmpty ? content : 'Sent a photo',
+        MessageType.video => content.isNotEmpty ? content : 'Sent a video',
+        MessageType.voice => 'Voice message',
+        MessageType.sticker => 'Sent a sticker',
+        MessageType.reel => 'Shared a reel',
+        _ => content.isEmpty ? 'Sent a message' : content,
+      };
+
+      final convUpdate = <String, dynamic>{
+        'lastMessage': summaryText,
+        'lastMessageType': type.name,
+        'lastSenderId': senderId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (recipientId != null &&
+          recipientId.isNotEmpty &&
+          recipientId != senderId) {
+        convUpdate['unreadCount.$recipientId'] = FieldValue.increment(1);
+      }
+
       batch.update(
         FirebaseService.firestore
             .collection('conversations')
             .doc(conversationId),
-        {
-          'lastMessage': content.isEmpty ? 'Sent a message' : content,
-          'lastMessageType': type.name,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
+        convUpdate,
       );
 
       await batch.commit();
+      return true;
     } catch (_) {
-      // The optimistic message stays on screen with a "sending" status.
+      return false;
+    }
+  }
+
+  /// Toggles or sets an emoji reaction on a message.
+  static Future<bool> reactToMessage({
+    required String conversationId,
+    required String messageId,
+    required String? reaction,
+  }) async {
+    if (!FirebaseService.isReady) return false;
+    try {
+      await FirebaseService.firestore
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .update({'reaction': reaction});
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Deletes one message from a conversation.
+  static Future<bool> deleteMessage({
+    required String conversationId,
+    required String messageId,
+  }) async {
+    if (!FirebaseService.isReady) return false;
+    try {
+      await FirebaseService.firestore
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc(messageId)
+          .delete();
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

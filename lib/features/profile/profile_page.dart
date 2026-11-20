@@ -83,6 +83,10 @@ class _ProfilePageState extends ConsumerState<ProfilePage>
                         ref.read(navControllerProvider).backPage(),
                     onShare: () => _shareProfile(context, user),
                     onMenu: () => _openMenu(context),
+                    onEditProfile: () =>
+                        ref.read(navControllerProvider).pushPage(AppPage.editProfile),
+                    onFindFriends: () =>
+                        ref.read(navControllerProvider).pushPage(AppPage.search),
                   ),
                 ),
                 SliverToBoxAdapter(
@@ -295,6 +299,8 @@ class _ProfileHeader extends StatelessWidget {
     required this.onBack,
     required this.onShare,
     required this.onMenu,
+    required this.onEditProfile,
+    required this.onFindFriends,
   });
 
   final String name;
@@ -310,6 +316,8 @@ class _ProfileHeader extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback onShare;
   final VoidCallback onMenu;
+  final VoidCallback onEditProfile;
+  final VoidCallback onFindFriends;
 
   @override
   Widget build(BuildContext context) {
@@ -466,41 +474,49 @@ class _ProfileHeader extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: Container(
-                  height: 38,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: onEditProfile,
+                  child: Container(
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF0EA5E9), Color(0xFF2563EB)],
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
                     ),
-                    borderRadius: BorderRadius.circular(AppRadius.lg),
-                  ),
-                  child: const Text(
-                    'Edit profile',
-                    style: TextStyle(
-                      fontFamily: 'PlusJakartaSans',
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                    child: const Text(
+                      'Edit profile',
+                      style: TextStyle(
+                        fontFamily: 'PlusJakartaSans',
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              Container(
-                width: 42,
-                height: 38,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  border: Border.all(color: const Color(0x1F000000)),
-                ),
-                child: const LucideIcon(
-                  LucideIcons.userPlus,
-                  size: 18,
-                  strokeWidth: 2.2,
-                  color: textPrimary,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onFindFriends,
+                child: Container(
+                  width: 42,
+                  height: 38,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
+                    border: Border.all(color: const Color(0x1F000000)),
+                  ),
+                  child: const LucideIcon(
+                    LucideIcons.userPlus,
+                    size: 18,
+                    strokeWidth: 2.2,
+                    color: textPrimary,
+                  ),
                 ),
               ),
             ],
@@ -665,7 +681,10 @@ class _ProfileAvatar extends StatelessWidget {
             border: Border.all(color: const Color(0x14000000), width: 1),
             image: url.isEmpty
                 ? null
-                : DecorationImage(image: NetworkImage(url), fit: BoxFit.cover),
+                : DecorationImage(
+                    image: ResizeImage(NetworkImage(url), width: 180),
+                    fit: BoxFit.cover,
+                  ),
           ),
           child: url.isEmpty
               ? Center(
@@ -835,19 +854,83 @@ class _ProfileGrid extends StatelessWidget {
         ),
         itemBuilder: (context, index) {
           final post = posts[index];
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadius.md),
-            child: post.media.isEmpty
-                ? const ColoredBox(color: Color(0xFFF3E8FF))
-                : Image.network(
-                    post.media.first,
-                    fit: BoxFit.cover,
-                    cacheWidth: 400,
-                    errorBuilder: (_, __, ___) =>
-                        const ColoredBox(color: Color(0xFFF3E8FF)),
-                  ),
+          return GestureDetector(
+            onTap: () => _openPostPreview(context, post),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: post.media.isEmpty
+                  ? Container(
+                      color: const Color(0xFFF3E8FF),
+                      padding: const EdgeInsets.all(8),
+                      alignment: Alignment.center,
+                      child: Text(
+                        post.text,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontFamily: 'PlusJakartaSans',
+                          fontSize: 11,
+                          color: Color(0xFF4C1D95),
+                        ),
+                      ),
+                    )
+                  : Image.network(
+                      post.media.first,
+                      fit: BoxFit.cover,
+                      cacheWidth: 400,
+                      errorBuilder: (_, __, ___) =>
+                          const ColoredBox(color: Color(0xFFF3E8FF)),
+                    ),
+            ),
           );
         },
+      ),
+    );
+  }
+
+  void _openPostPreview(BuildContext context, AppPost post) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (post.media.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 340),
+                    child: Image.network(
+                      post.media.first,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              if (post.text.isNotEmpty) ...[
+                if (post.media.isNotEmpty) const SizedBox(height: 12),
+                Text(
+                  post.text,
+                  style: EnnvoText.body.copyWith(color: const Color(0xFF111827)),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.of(dialogContext).maybePop(),
+                  child: const Text('Close'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

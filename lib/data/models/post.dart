@@ -6,6 +6,8 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'firestore_parse.dart';
+
 enum PostType { post, reel, text }
 
 enum PostPrivacy { public, followers, private }
@@ -123,32 +125,56 @@ class AppPost {
     String? fallbackId,
   }) {
     final data = doc.data() ?? const <String, dynamic>{};
-    final type = switch (data['type'] as String?) {
+    return AppPost.fromMap(data, fallbackId: fallbackId ?? doc.id);
+  }
+
+  factory AppPost.fromMap(
+    Map<String, dynamic> data, {
+    String fallbackId = '',
+  }) {
+    final rawType = (data['type'] as String?)?.toLowerCase();
+    final type = switch (rawType) {
       'reel' => PostType.reel,
       'text' => PostType.text,
       _ => PostType.post,
     };
-    final privacy = switch (data['privacy'] as String?) {
+    final privacy = switch ((data['privacy'] as String?)?.toLowerCase()) {
       'followers' => PostPrivacy.followers,
       'private' => PostPrivacy.private,
       _ => PostPrivacy.public,
     };
 
+    final rawMedia = parseStringList(data['media']);
+    final fallbackMediaUrl = data['mediaUrl'] as String?;
+    final media = rawMedia.isNotEmpty
+        ? rawMedia
+        : (fallbackMediaUrl != null && fallbackMediaUrl.isNotEmpty
+            ? <String>[fallbackMediaUrl]
+            : const <String>[]);
+
+    final rawUsername = data['authorUsername'] as String?;
+    final rawAuthorName = (data['authorName'] as String?)?.trim() ?? '';
+    final authorName = rawAuthorName.isNotEmpty
+        ? rawAuthorName
+        : (rawUsername != null && rawUsername.trim().isNotEmpty
+            ? rawUsername.trim()
+            : 'Ennvo User');
+
     return AppPost(
-      id: (data['id'] as String?) ?? doc.id,
+      id: (data['id'] as String?) ?? fallbackId,
       authorId: (data['authorId'] as String?) ?? '',
-      authorName: (data['authorName'] as String?) ?? '',
+      authorName: authorName,
       authorAvatar: (data['authorAvatar'] as String?) ?? '',
-      authorUsername: data['authorUsername'] as String?,
+      authorUsername: rawUsername,
       text: (data['text'] as String?) ?? '',
-      media: (data['media'] as List?)?.whereType<String>().toList() ?? const [],
+      media: media,
       type: type,
-      likesCount: (data['likesCount'] as num?)?.toInt() ?? 0,
-      commentsCount: (data['commentsCount'] as num?)?.toInt() ?? 0,
-      repostsCount: (data['repostsCount'] as num?)?.toInt() ?? 0,
-      viewsCount: (data['viewsCount'] as num?)?.toInt() ?? 0,
-      favoritesCount: (data['favoritesCount'] as num?)?.toInt() ?? 0,
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      likesCount: parseInt(data['likesCount']),
+      commentsCount: parseInt(data['commentsCount']),
+      repostsCount: parseInt(data['repostsCount']),
+      viewsCount: parseInt(data['viewsCount']),
+      favoritesCount: parseInt(data['favoritesCount']),
+      createdAt: parseDateTime(data['createdAt']),
       songId: data['songId'] as String?,
       songTitle: data['songTitle'] as String?,
       songArtist: data['songArtist'] as String?,
@@ -157,16 +183,16 @@ class AppPost {
       category: data['category'] as String?,
       aspectRatioFit: data['aspectRatioFit'] as String?,
       thumbnailUrl: data['thumbnailUrl'] as String?,
-      isPromoted: data['isPromoted'] as bool? ?? false,
-      isPinned: data['isPinned'] as bool? ?? false,
-      isFeatured: data['isFeatured'] as bool? ?? false,
+      isPromoted: data['isPromoted'] == true,
+      isPinned: data['isPinned'] == true,
+      isFeatured: data['isFeatured'] == true,
       status: data['status'] as String?,
       location: data['location'] as String?,
-      taggedUsers:
-          (data['taggedUsers'] as List?)?.whereType<String>().toList() ?? const [],
+      taggedUsers: parseStringList(data['taggedUsers']),
       mediaTypes: [
         for (final detail in (data['mediaDetails'] as List?) ?? const [])
-          if (detail is Map && detail['type'] is String) detail['type'] as String,
+          if (detail is Map && detail['type'] is String)
+            detail['type'] as String,
       ],
     );
   }

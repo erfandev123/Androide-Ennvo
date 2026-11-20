@@ -1,24 +1,16 @@
 // ============================================================================
 //  ENNVO — CREATE SCREEN
 //
-//  Ported from `src/pages/Create.tsx`.
-//
-//  The composer offers:
-//    • a caption field
-//    • the picture that was shot in the camera
-//    • a "big text" background picker — the fourteen gradients the web app
-//      ships, plus a custom colour
-//    • the advanced settings sheet: comments disabled, privacy, hidden
-//      likes, remixes, high quality and saving to the device
-//
-//  The share button uploads the file to Cloudflare R2 and writes the post
-//  to Firestore, the same two steps the web app takes.
+//  Ported from `src/pages/Create.tsx`: caption field, gallery picker,
+//  big-text background picker, music/location/tag options, and functional
+//  advanced settings sheet.
 // ============================================================================
 
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/providers.dart';
 import '../../core/theme/tokens.dart';
@@ -36,10 +28,7 @@ class CreatePage extends ConsumerStatefulWidget {
     this.isReel = false,
   });
 
-  /// The picture that was shot or picked in the camera.
   final File? mediaFile;
-
-  /// The media is a reel and not a post.
   final bool isReel;
 
   @override
@@ -49,28 +38,31 @@ class CreatePage extends ConsumerStatefulWidget {
 class _CreatePageState extends ConsumerState<CreatePage> {
   final TextEditingController _caption = TextEditingController();
 
-  /// The selected big-text background id — one of
-  /// [AppGradients.bigTextBackgrounds].
+  File? _mediaFile;
   String _background = 'none';
-  Color _customColor = const Color(0xFF2563EB);
-  bool _showAdvanced = false;
+  final Color _customColor = const Color(0xFF2563EB);
+  String? _musicTitle;
+  String? _locationLabel;
 
-  /// The upload is running.
   bool _uploading = false;
-
-  /// How far the upload has come.
   double _progress = 0;
-
-  /// The picture was sent.
   bool _published = false;
 
-  // --- advanced settings, matching the web app's object --------------
   bool _commentsDisabled = false;
-  String _privacy = 'public';
+  final String _privacy = 'public';
   bool _hideLikes = false;
   bool _allowRemix = true;
   bool _highQuality = true;
   bool _saveToDevice = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mediaFile = widget.mediaFile;
+    _caption.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
@@ -78,24 +70,86 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     super.dispose();
   }
 
+  Future<void> _pickPhoto() async {
+    try {
+      final photo = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1600,
+        imageQuality: 88,
+      );
+      if (photo == null || !mounted) return;
+      setState(() => _mediaFile = File(photo.path));
+    } catch (_) {}
+  }
+
+  Future<void> _promptField({
+    required String title,
+    required String hint,
+    required String? current,
+    required ValueChanged<String?> onSave,
+  }) async {
+    final controller = TextEditingController(text: current ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(hintText: hint),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null || !mounted) return;
+    onSave(result.isEmpty ? null : result);
+  }
+
+  Future<void> _openAdvancedSettings() async {
+    final updated = await showModalBottomSheet<
+        ({
+          bool commentsDisabled,
+          bool hideLikes,
+          bool allowRemix,
+          bool highQuality,
+          bool saveToDevice,
+        })>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _AdvancedSettingsSheet(
+        commentsDisabled: _commentsDisabled,
+        hideLikes: _hideLikes,
+        allowRemix: _allowRemix,
+        highQuality: _highQuality,
+        saveToDevice: _saveToDevice,
+      ),
+    );
+    if (updated == null || !mounted) return;
+    setState(() {
+      _commentsDisabled = updated.commentsDisabled;
+      _hideLikes = updated.hideLikes;
+      _allowRemix = updated.allowRemix;
+      _highQuality = updated.highQuality;
+      _saveToDevice = updated.saveToDevice;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
     final top = MediaQuery.paddingOf(context).top;
-
-    // The advanced settings open as a bottom sheet.
-    if (_showAdvanced) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        setState(() => _showAdvanced = false);
-        showModalBottomSheet<void>(
-          context: context,
-          backgroundColor: Colors.transparent,
-          isScrollControlled: true,
-          builder: (_) => const _AdvancedSettingsSheet(),
-        );
-      });
-    }
 
     return Scaffold(
       backgroundColor: t.background,
@@ -107,7 +161,13 @@ class _CreatePageState extends ConsumerState<CreatePage> {
             child: Row(
               children: [
                 IconButton(
-                  onPressed: () => Navigator.of(context).maybePop(),
+                  onPressed: () {
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).maybePop();
+                    } else {
+                      ref.read(navControllerProvider).popPage();
+                    }
+                  },
                   icon: LucideIcon(
                     LucideIcons.arrowLeft,
                     size: 22,
@@ -157,75 +217,126 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                 // --- the media area ------------------------------------
                 AspectRatio(
                   aspectRatio: widget.isReel ? 9 / 16 : 1,
-                  child: Container(
-                    clipBehavior: Clip.antiAlias,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppRadius.xxl),
-                      gradient: _backgroundGradient(),
-                      color: _background == 'none' ? t.surfaceAlt : null,
-                    ),
-                    child: Stack(
-                      children: [
-                        if (widget.mediaFile != null)
-                          Positioned.fill(
-                            child: Image.file(
-                              widget.mediaFile!,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) =>
-                                  const SizedBox.shrink(),
-                            ),
-                          ),
-                        if (widget.mediaFile == null && _background == 'none')
-                          Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                LucideIcon(
-                                  LucideIcons.image,
-                                  size: 44,
-                                  strokeWidth: 1.6,
-                                  color: t.textTertiary,
-                                ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  'Add photos or a video',
-                                  style: EnnvoText.body.copyWith(
-                                    color: t.textSecondary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (_caption.text.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Text(
-                              _caption.text,
-                              style: EnnvoText.pageHero.copyWith(
-                                color: _background == 'none'
-                                    ? t.textPrimary
-                                    : Colors.white,
-                                fontSize: 22,
+                  child: GestureDetector(
+                    onTap: _mediaFile == null ? _pickPhoto : null,
+                    child: Container(
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadius.xxl),
+                        gradient: _backgroundGradient(),
+                        color: _background == 'none' ? t.surfaceAlt : null,
+                      ),
+                      child: Stack(
+                        children: [
+                          if (_mediaFile != null)
+                            Positioned.fill(
+                              child: Image.file(
+                                _mediaFile!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) =>
+                                    const SizedBox.shrink(),
                               ),
                             ),
-                          ),
-                      ],
+                          if (_mediaFile == null && _background == 'none')
+                            Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  LucideIcon(
+                                    LucideIcons.image,
+                                    size: 44,
+                                    strokeWidth: 1.6,
+                                    color: t.textTertiary,
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Tap to pick a photo or write text below',
+                                    style: EnnvoText.body.copyWith(
+                                      color: t.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (_caption.text.isNotEmpty)
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(20),
+                                child: Text(
+                                  _caption.text,
+                                  textAlign: TextAlign.center,
+                                  style: EnnvoText.pageHero.copyWith(
+                                    color: _background == 'none' &&
+                                            _mediaFile == null
+                                        ? t.textPrimary
+                                        : Colors.white,
+                                    fontSize: 22,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (_mediaFile != null)
+                            Positioned(
+                              top: 10,
+                              right: 10,
+                              child: GestureDetector(
+                                onTap: () => setState(() => _mediaFile = null),
+                                child: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0x99000000),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: const LucideIcon(
+                                    LucideIcons.x,
+                                    size: 16,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
 
+                if (_musicTitle != null || _locationLabel != null) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      if (_musicTitle != null)
+                        Chip(
+                          label: Text(_musicTitle!),
+                          onDeleted: () => setState(() => _musicTitle = null),
+                        ),
+                      if (_locationLabel != null)
+                        Chip(
+                          label: Text(_locationLabel!),
+                          onDeleted: () =>
+                              setState(() => _locationLabel = null),
+                        ),
+                    ],
+                  ),
+                ],
+
                 const SizedBox(height: 18),
 
-                // --- caption --------------------------------------------
                 EnnvoTextField(
                   label: 'Caption',
                   controller: _caption,
                   hint: 'Write a caption…',
+                  maxLines: 4,
+                  minLines: 2,
+                  textCapitalization: TextCapitalization.sentences,
                   textInputAction: TextInputAction.newline,
                 ),
                 const SizedBox(height: 18),
 
-                // --- the tool row ---------------------------------------
                 Row(
                   children: [
                     _ToolButton(
@@ -235,7 +346,7 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                         strokeWidth: 2.2,
                       ),
                       label: 'Photo',
-                      onTap: () {},
+                      onTap: _pickPhoto,
                     ),
                     _ToolButton(
                       icon: const LucideIcon(
@@ -244,7 +355,12 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                         strokeWidth: 2.2,
                       ),
                       label: 'Music',
-                      onTap: () {},
+                      onTap: () => _promptField(
+                        title: 'Add song',
+                        hint: 'Song title - Artist',
+                        current: _musicTitle,
+                        onSave: (v) => setState(() => _musicTitle = v),
+                      ),
                     ),
                     _ToolButton(
                       icon: const LucideIcon(
@@ -253,16 +369,12 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                         strokeWidth: 2.2,
                       ),
                       label: 'Location',
-                      onTap: () {},
-                    ),
-                    _ToolButton(
-                      icon: const LucideIcon(
-                        LucideIcons.userPlus,
-                        size: 20,
-                        strokeWidth: 2.2,
+                      onTap: () => _promptField(
+                        title: 'Add location',
+                        hint: 'City or place',
+                        current: _locationLabel,
+                        onSave: (v) => setState(() => _locationLabel = v),
                       ),
-                      label: 'Tag',
-                      onTap: () {},
                     ),
                     _ToolButton(
                       icon: const LucideIcon(
@@ -271,13 +383,12 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                         strokeWidth: 2.2,
                       ),
                       label: 'Settings',
-                      onTap: () => setState(() => _showAdvanced = true),
+                      onTap: _openAdvancedSettings,
                     ),
                   ],
                 ),
                 const SizedBox(height: 22),
 
-                // --- the big text background picker ---------------------
                 Text(
                   'BIG TEXT BACKGROUND',
                   style: EnnvoText.overlineXs.copyWith(
@@ -297,7 +408,6 @@ class _CreatePageState extends ConsumerState<CreatePage> {
                         isSelected: _background == entry.key,
                         onTap: () => setState(() => _background = entry.key),
                       ),
-                    // The custom colour swatch.
                     GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () => setState(() => _background = 'custom'),
@@ -331,11 +441,16 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     );
   }
 
-  /// Uploads the picture and writes the post.
   Future<void> _publish() async {
     if (_uploading || _published) return;
+    if (_mediaFile == null && _caption.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add a photo or write something first.')),
+      );
+      return;
+    }
 
-    final file = widget.mediaFile;
+    final file = _mediaFile;
     final user = ref.read(authControllerProvider).user;
 
     setState(() {
@@ -350,8 +465,7 @@ class _CreatePageState extends ConsumerState<CreatePage> {
           file: file,
           folder: widget.isReel ? 'reels' : 'posts',
           onProgress: (sent, total) {
-            if (!mounted) return;
-            if (total <= 0) return;
+            if (!mounted || total <= 0) return;
             setState(() => _progress = sent / total);
           },
         );
@@ -361,19 +475,22 @@ class _CreatePageState extends ConsumerState<CreatePage> {
       }
     }
 
-    // The post is written even when the upload did not make it: the text
-    // of a post is worth more than its picture.
     final id = 'post-${DateTime.now().millisecondsSinceEpoch}';
+    final caption = _locationLabel == null
+        ? _caption.text.trim()
+        : '${_caption.text.trim()}\n📍 $_locationLabel'.trim();
+
     final written = await PostService.create(
       id: id,
       authorId: user?.uid ?? 'me',
       authorName: user?.name ?? 'You',
       authorAvatar: user?.avatar ?? '',
       authorUsername: user?.username ?? '',
-      text: _caption.text.trim(),
+      text: caption,
       media: url == null ? const <String>[] : <String>[url],
       mediaTypes: url == null ? const <String>[] : const <String>['image'],
       type: widget.isReel ? 'reel' : 'post',
+      songTitle: _musicTitle,
       privacy: _privacy,
       commentsDisabled: _commentsDisabled,
       allowRemix: _allowRemix,
@@ -389,7 +506,11 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     });
 
     if (written != null) {
-      Navigator.of(context).maybePop();
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).maybePop();
+      } else {
+        ref.read(navControllerProvider).popPage();
+      }
     }
   }
 
@@ -403,12 +524,7 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     }
 
     final css = AppGradients.bigTextBackgrounds[_background];
-    if (css == null || css.isEmpty) return null;
-
-    // The gradients are stored exactly as the web app's CSS.
-    if (css.startsWith('#')) {
-      return null;
-    }
+    if (css == null || css.isEmpty || css.startsWith('#')) return null;
 
     final stops = _parseCssGradient(css);
     return LinearGradient(
@@ -419,7 +535,6 @@ class _CreatePageState extends ConsumerState<CreatePage> {
     );
   }
 
-  /// Reads the hex colours out of a CSS gradient string.
   static List<(Color, double)> _parseCssGradient(String css) {
     final hexMatches = RegExp(
       r'#([0-9a-fA-F]{3,8})',
@@ -508,7 +623,6 @@ class _GradientSwatch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
-
     final stops = _CreatePageState._parseCssGradient(css);
 
     return GestureDetector(
@@ -538,76 +652,106 @@ class _GradientSwatch extends StatelessWidget {
   }
 }
 
-/// The advanced settings sheet.
 class _AdvancedSettingsSheet extends StatefulWidget {
-  const _AdvancedSettingsSheet();
+  const _AdvancedSettingsSheet({
+    required this.commentsDisabled,
+    required this.hideLikes,
+    required this.allowRemix,
+    required this.highQuality,
+    required this.saveToDevice,
+  });
+
+  final bool commentsDisabled;
+  final bool hideLikes;
+  final bool allowRemix;
+  final bool highQuality;
+  final bool saveToDevice;
 
   @override
   State<_AdvancedSettingsSheet> createState() => _AdvancedSettingsSheetState();
 }
 
 class _AdvancedSettingsSheetState extends State<_AdvancedSettingsSheet> {
-  bool _commentsDisabled = false;
-  bool _hideLikes = false;
-  bool _allowRemix = true;
-  bool _highQuality = true;
-  bool _saveToDevice = false;
+  late bool _commentsDisabled = widget.commentsDisabled;
+  late bool _hideLikes = widget.hideLikes;
+  late bool _allowRemix = widget.allowRemix;
+  late bool _highQuality = widget.highQuality;
+  late bool _saveToDevice = widget.saveToDevice;
 
   @override
   Widget build(BuildContext context) {
     final t = context.tokens;
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: t.borderStrong,
-                  borderRadius: BorderRadius.circular(12),
+    return Container(
+      decoration: BoxDecoration(
+        color: t.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppRadius.sheet),
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: t.borderStrong,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Advanced settings',
-              style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
-            ),
-            const SizedBox(height: 10),
-            _ToggleRow(
-              label: 'Turn off commenting',
-              value: _commentsDisabled,
-              onChanged: (v) => setState(() => _commentsDisabled = v),
-            ),
-            _ToggleRow(
-              label: 'Hide like counts',
-              value: _hideLikes,
-              onChanged: (v) => setState(() => _hideLikes = v),
-            ),
-            _ToggleRow(
-              label: 'Allow remixes',
-              value: _allowRemix,
-              onChanged: (v) => setState(() => _allowRemix = v),
-            ),
-            _ToggleRow(
-              label: 'High quality upload',
-              value: _highQuality,
-              onChanged: (v) => setState(() => _highQuality = v),
-            ),
-            _ToggleRow(
-              label: 'Save to device',
-              value: _saveToDevice,
-              onChanged: (v) => setState(() => _saveToDevice = v),
-            ),
-            const SizedBox(height: 18),
-            EnnvoPrimaryButton(label: 'Done', onPressed: () {}),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                'Advanced settings',
+                style: EnnvoText.titleMd.copyWith(color: t.textPrimary),
+              ),
+              const SizedBox(height: 10),
+              _ToggleRow(
+                label: 'Turn off commenting',
+                value: _commentsDisabled,
+                onChanged: (v) => setState(() => _commentsDisabled = v),
+              ),
+              _ToggleRow(
+                label: 'Hide like counts',
+                value: _hideLikes,
+                onChanged: (v) => setState(() => _hideLikes = v),
+              ),
+              _ToggleRow(
+                label: 'Allow remixes',
+                value: _allowRemix,
+                onChanged: (v) => setState(() => _allowRemix = v),
+              ),
+              _ToggleRow(
+                label: 'High quality upload',
+                value: _highQuality,
+                onChanged: (v) => setState(() => _highQuality = v),
+              ),
+              _ToggleRow(
+                label: 'Save to device',
+                value: _saveToDevice,
+                onChanged: (v) => setState(() => _saveToDevice = v),
+              ),
+              const SizedBox(height: 18),
+              EnnvoPrimaryButton(
+                label: 'Done',
+                onPressed: () {
+                  Navigator.of(context).pop((
+                    commentsDisabled: _commentsDisabled,
+                    hideLikes: _hideLikes,
+                    allowRemix: _allowRemix,
+                    highQuality: _highQuality,
+                    saveToDevice: _saveToDevice,
+                  ));
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

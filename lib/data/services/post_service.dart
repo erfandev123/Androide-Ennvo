@@ -14,43 +14,112 @@ class PostService {
 
   static const int defaultPageSize = 10;
 
-  /// Subscribes to the main home feed, newest first.
+  /// Subscribes to the main home feed, promoted & newest first.
+  ///
+  /// Matches the web app (`src/services/postService.ts`): single-field
+  /// `orderBy('createdAt')` with NO `.where('type', ...)` filter (which
+  /// previously required a composite index and dropped `'text'`/untyped posts).
   static Stream<List<AppPost>> subscribeFeed({int pageSize = 30}) {
     if (!FirebaseService.isReady) return Stream.value(const <AppPost>[]);
 
     return FirebaseService.firestore
         .collection('posts')
-        .where('type', isEqualTo: 'post')
         .orderBy('createdAt', descending: true)
-        .limit(pageSize)
+        .limit(pageSize * 2)
         .snapshots()
         .map(
-          (snapshot) =>
-              snapshot.docs
-                  .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
-                  .toList(growable: false),
+          (snapshot) => sortFeed(
+            snapshot.docs
+                .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
+                .toList(growable: false),
+            limit: pageSize,
+          ),
         );
   }
 
-  /// Subscribes to the posts of one user.
+  /// Filters out reels/archived posts and orders promoted + newest posts first.
+  static List<AppPost> sortFeed(List<AppPost> raw, {int? limit}) {
+    final visible = raw
+        .where(
+          (post) =>
+              !post.isReel &&
+              post.status != 'deleted' &&
+              post.status != 'archived',
+        )
+        .toList(growable: false);
+
+    visible.sort((a, b) {
+      if (a.isPromoted != b.isPromoted) return a.isPromoted ? -1 : 1;
+      final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
+      final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
+      return bMs.compareTo(aMs);
+    });
+
+    if (limit != null && visible.length > limit) {
+      return visible.take(limit).toList(growable: false);
+    }
+    return visible;
+  }
+
+  /// Subscribes to the posts of one user (sorted client-side so no composite
+  /// index on `authorId + createdAt` is needed).
   static Stream<List<AppPost>> subscribeUserPosts(
     String userId, {
     int pageSize = 30,
   }) {
-    if (!FirebaseService.isReady) return Stream.value(const <AppPost>[]);
+    if (!FirebaseService.isReady || userId.isEmpty) {
+      return Stream.value(const <AppPost>[]);
+    }
 
     return FirebaseService.firestore
         .collection('posts')
         .where('authorId', isEqualTo: userId)
-        .orderBy('createdAt', descending: true)
-        .limit(pageSize)
+        .limit(pageSize * 2)
         .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs
-                  .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
-                  .toList(growable: false),
-        );
+        .map((snapshot) {
+          final posts = snapshot.docs
+              .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
+              .where((post) => post.status != 'deleted')
+              .toList(growable: false);
+          posts.sort((a, b) {
+            final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
+            final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
+            return bMs.compareTo(aMs);
+          });
+          return posts.take(pageSize).toList(growable: false);
+        });
+  }
+
+  /// Client-side filtered search over recent posts/reels.
+  static Future<List<AppPost>> searchPosts(
+    String query, {
+    int limit = 25,
+  }) async {
+    if (!FirebaseService.isReady) return const [];
+    final q = query.trim().toLowerCase();
+    try {
+      final snapshot = await FirebaseService.firestore
+          .collection('posts')
+          .orderBy('createdAt', descending: true)
+          .limit(80)
+          .get();
+      final posts = snapshot.docs
+          .map((doc) => AppPost.fromFirestore(doc, fallbackId: doc.id))
+          .where((post) {
+            if (post.status == 'deleted') return false;
+            if (q.isEmpty) return true;
+            return post.text.toLowerCase().contains(q) ||
+                post.authorName.toLowerCase().contains(q) ||
+                (post.authorUsername?.toLowerCase().contains(q) ?? false) ||
+                (post.songTitle?.toLowerCase().contains(q) ?? false) ||
+                (post.songArtist?.toLowerCase().contains(q) ?? false) ||
+                (post.category?.toLowerCase().contains(q) ?? false);
+          })
+          .toList(growable: false);
+      return posts.take(limit).toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
   }
 
   /// The posts the user saved, read from `users/{uid}/favorites`.
