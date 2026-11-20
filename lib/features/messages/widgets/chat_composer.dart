@@ -14,7 +14,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../../core/theme/motion.dart';
 import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 import '../../../data/models/message.dart';

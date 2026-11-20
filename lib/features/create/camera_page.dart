@@ -178,7 +178,7 @@ class _CameraPageState extends State<CameraPage> with WidgetsBindingObserver {
         if (ready)
           Positioned.fill(
             child: CameraPreview(
-              controller!,
+              controller,
               child: const SizedBox.expand(),
             ),
           )

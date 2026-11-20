@@ -511,8 +511,6 @@ class _FollowersPaneState extends ConsumerState<_FollowersPane> {
                                           title: person.name.isEmpty
                                               ? 'Chat'
                                               : person.name,
-                                          avatarUrl: person.avatar,
-                                          otherUserId: person.uid,
                                         ),
                                       ),
                                     );
@@ -735,8 +733,6 @@ class _ActivityCardContainer extends ConsumerWidget {
                   builder: (_) => ChatScreen(
                     conversationId: convId,
                     title: displayName,
-                    avatarUrl: displayAvatar,
-                    otherUserId: notification.actorId,
                   ),
                 ),
               );
