@@ -258,18 +258,20 @@ void main() {
     }, fallbackId: 'p-big-text');
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: EnnvoTheme.light(),
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: PostCard(
-              post: post,
-              isLiked: false,
-              isReposted: false,
-              likesCount: 12,
-              isSaved: false,
-              favoritesCount: 3,
-              onToggleSave: () => savedTapped = true,
+      ProviderScope(
+        child: MaterialApp(
+          theme: EnnvoTheme.light(),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: PostCard(
+                post: post,
+                isLiked: false,
+                isReposted: false,
+                likesCount: 12,
+                isSaved: false,
+                favoritesCount: 3,
+                onToggleSave: () => savedTapped = true,
+              ),
             ),
           ),
         ),
@@ -279,8 +281,8 @@ void main() {
 
     expect(find.text('Dhaka, Bangladesh'), findsOneWidget);
     expect(find.textContaining('with Tania, Arif'), findsOneWidget);
-    expect(find.byTooltip('Favorite'), findsOneWidget);
-    await tester.tap(find.byTooltip('Favorite'));
+    expect(find.bySemanticsLabel('Save'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('Save'));
     await tester.pump();
     expect(savedTapped, isTrue);
     expect(tester.takeException(), isNull);
@@ -332,9 +334,9 @@ void main() {
     );
     await tester.pump();
 
-    // Press down in the right 55% zone of the ReelCard
-    final gesture = await tester.startGesture(const Offset(320, 420));
-    await tester.pump(const Duration(milliseconds: 260));
+    // Press down in the right half of the ReelCard (left of the action rail)
+    final gesture = await tester.startGesture(const Offset(270, 420));
+    await tester.pump(const Duration(milliseconds: 250));
     expect(cleanEvents, contains(true));
     expect(find.text('2x'), findsOneWidget);
 

@@ -169,6 +169,7 @@ class _ReelCardState extends State<ReelCard>
   /// The reel runs at 2x while the right side of the picture is held down.
   bool _fastForward = false;
   bool _holdTriggered = false;
+  Offset _pressOrigin = Offset.zero;
   Timer? _holdTimer;
 
   /// The heart that bursts out of a double tap.
@@ -250,6 +251,7 @@ class _ReelCardState extends State<ReelCard>
   void _handlePress(Offset position, double width) {
     _holdTimer?.cancel();
     _holdTriggered = false;
+    _pressOrigin = position;
     if (width <= 0) return;
     if (position.dx < width * _fastZone) return;
 
@@ -321,26 +323,39 @@ class _ReelCardState extends State<ReelCard>
         // --- media ----------------------------------------------------
         LayoutBuilder(
           builder: (context, constraints) {
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (details) => _handlePress(
+            return Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (details) => _handlePress(
                 details.localPosition,
                 constraints.maxWidth,
               ),
-              onTapUp: (details) {
-                if (_holdTriggered) {
-                  _holdTriggered = false;
-                  _handleRelease();
-                  return;
+              onPointerMove: (details) {
+                if (!_holdTriggered &&
+                    (details.localPosition - _pressOrigin).distance > 14) {
+                  _holdTimer?.cancel();
+                  _holdTimer = null;
                 }
-                _holdTimer?.cancel();
-                _holdTimer = null;
-                _handleTap(details.localPosition);
               },
-              onTapCancel: () {
+              onPointerUp: (_) => _handleRelease(),
+              onPointerCancel: (_) {
                 _holdTriggered = false;
                 _handleRelease();
               },
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapUp: (details) {
+                  if (_holdTriggered) {
+                    _holdTriggered = false;
+                    return;
+                  }
+                  _holdTimer?.cancel();
+                  _holdTimer = null;
+                  _handleTap(details.localPosition);
+                },
+                onTapCancel: () {
+                  _holdTimer?.cancel();
+                  _holdTimer = null;
+                },
               child: ReelVideo(
                 url: demo == null ? widget.post.videoUrl : null,
                 assetPath: demo?.videoAsset,
@@ -356,6 +371,7 @@ class _ReelCardState extends State<ReelCard>
                 onProgress: widget.onProgress,
                 playback: widget.playback,
               ),
+            ),
             );
           },
         ),
