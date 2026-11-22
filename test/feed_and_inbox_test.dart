@@ -281,8 +281,8 @@ void main() {
 
     expect(find.text('Dhaka, Bangladesh'), findsOneWidget);
     expect(find.textContaining('with Tania, Arif'), findsOneWidget);
-    expect(find.bySemanticsLabel('Save'), findsOneWidget);
-    await tester.tap(find.bySemanticsLabel('Save'));
+    expect(find.byTooltip('Save'), findsOneWidget);
+    await tester.tap(find.byTooltip('Save'));
     await tester.pump();
     expect(savedTapped, isTrue);
     expect(tester.takeException(), isNull);
@@ -290,6 +290,10 @@ void main() {
 
   testWidgets('ReelCard right-side hold enables clean mode and shows 2x badge',
       (tester) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
     final cleanEvents = <bool>[];
     final post = AppPost.fromMap({
       'authorId': 'u-1',
@@ -303,39 +307,35 @@ void main() {
       MaterialApp(
         theme: EnnvoTheme.dark(),
         home: Scaffold(
-          body: SizedBox(
-            width: 390,
-            height: 844,
-            child: ReelCard(
-              post: post,
-              isActive: false,
-              isNear: false,
-              isLiked: false,
-              isSaved: false,
-              isReposted: false,
-              isFollowing: false,
-              likesCount: 10,
-              commentsCount: 2,
-              favouritesCount: 1,
-              sharesCount: 0,
-              muted: true,
-              onToggleLike: () {},
-              onToggleSave: () {},
-              onToggleRepost: () {},
-              onToggleFollow: () {},
-              onToggleMute: () {},
-              onOpenComments: () {},
-              onOpenShare: () {},
-              onCleanModeChanged: cleanEvents.add,
-            ),
+          body: ReelCard(
+            post: post,
+            isActive: false,
+            isNear: false,
+            isLiked: false,
+            isSaved: false,
+            isReposted: false,
+            isFollowing: false,
+            likesCount: 10,
+            commentsCount: 2,
+            favouritesCount: 1,
+            sharesCount: 0,
+            muted: true,
+            onToggleLike: () {},
+            onToggleSave: () {},
+            onToggleRepost: () {},
+            onToggleFollow: () {},
+            onToggleMute: () {},
+            onOpenComments: () {},
+            onOpenShare: () {},
+            onCleanModeChanged: cleanEvents.add,
           ),
         ),
       ),
     );
     await tester.pump();
 
-    // Press down in the right half of the ReelCard (left of the action rail)
-    final gesture = await tester.startGesture(const Offset(270, 420));
+    // Press down on the open right-side video canvas (width 360 -> 250 > 360*0.52)
+    final gesture = await tester.startGesture(const Offset(250, 260));
     await tester.pump(const Duration(milliseconds: 250));
     expect(cleanEvents, contains(true));
     expect(find.text('2x'), findsOneWidget);

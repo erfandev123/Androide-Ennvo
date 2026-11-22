@@ -383,12 +383,14 @@ class _ReelCardState extends State<ReelCard>
             left: 0,
             right: 0,
             height: 170,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x73000000), Color(0x00000000)],
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x73000000), Color(0x00000000)],
+                  ),
                 ),
               ),
             ),
@@ -398,16 +400,18 @@ class _ReelCardState extends State<ReelCard>
             right: 0,
             bottom: 0,
             height: 360,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.bottomCenter,
-                  end: Alignment.topCenter,
-                  colors: [
-                    Color(0xC7000000),
-                    Color(0x40000000),
-                    Color(0x00000000),
-                  ],
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      Color(0xC7000000),
+                      Color(0x40000000),
+                      Color(0x00000000),
+                    ],
+                  ),
                 ),
               ),
             ),

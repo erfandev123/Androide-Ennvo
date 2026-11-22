@@ -1132,7 +1132,7 @@ class _ActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.tokens;
 
-    return Semantics(
+    final button = Semantics(
       button: true,
       label: semanticLabel,
       child: GestureDetector(
@@ -1158,6 +1158,8 @@ class _ActionButton extends StatelessWidget {
         ),
       ),
     );
+    if (semanticLabel == null || semanticLabel!.isEmpty) return button;
+    return Tooltip(message: semanticLabel!, child: button);
   }
 
   static String _formatCount(int value) {
