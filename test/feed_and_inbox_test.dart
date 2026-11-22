@@ -337,7 +337,10 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.bySemanticsLabel('Like the comment'));
+    final likeFinder = find.byWidgetPredicate(
+      (w) => w is Semantics && w.properties.label == 'Like the comment',
+    );
+    await tester.tap(likeFinder);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 200));
 
@@ -347,7 +350,7 @@ void main() {
 
     final heartWidget = tester.widget<IonIcon>(
       find.descendant(
-        of: find.bySemanticsLabel('Like the comment'),
+        of: likeFinder,
         matching: find.byType(IonIcon),
       ),
     );
