@@ -328,7 +328,7 @@ void main() {
         home: Scaffold(
           body: ReelCommentsSheet(
             comments: [comment],
-            onSubmit: (_, __) async {},
+            onSubmit: (_, _) async {},
             onToggleLike: (_) {},
             onDelete: (_) {},
           ),
@@ -376,7 +376,7 @@ void main() {
           profileForTesting(ramBytes: 4 * 1024 * 1024 * 1024, cores: 4),
         ),
         userPostsProvider.overrideWith((ref) => Stream.value([reelPost])),
-        savedPostsProvider.overrideWith((ref) => Stream.value(const [])),
+        savedPostsProvider.overrideWith((ref) async => const <AppPost>[]),
       ],
     );
 
