@@ -35,7 +35,7 @@ import '../models/reel_comment.dart';
 import 'comment_attachments.dart';
 
 /// The blue of the brand: the heart of a comment and the send button.
-const Color _kCommentBlue = Color(0xFF2AA1FB);
+const Color _kCommentBlue = Color(0xFF0095F6);
 
 /// The emoji the sticker tray offers.
 const List<String> kStickerEmoji = [
@@ -130,6 +130,53 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
   /// The length of the voice note, in milliseconds.
   int _recordedMs = 0;
   Timer? _recordTimer;
+
+  /// Optimistic like overrides so liking any comment turns blue immediately
+  /// (including in feed sheets backed by subcollection writes).
+  final Map<String, bool> _localLiked = <String, bool>{};
+  final Map<String, ({bool baseLiked, int baseCount})> _likeBaseline =
+      <String, ({bool baseLiked, int baseCount})>{};
+
+  ReelComment _effectiveComment(ReelComment comment) {
+    final mappedReplies = comment.replies.isEmpty
+        ? const <ReelComment>[]
+        : [for (final reply in comment.replies) _effectiveComment(reply)];
+
+    if (!_localLiked.containsKey(comment.id)) {
+      if (comment.replies.isEmpty) return comment;
+      return comment.copyWith(replies: mappedReplies);
+    }
+
+    final desiredLiked = _localLiked[comment.id]!;
+    final base = _likeBaseline[comment.id];
+    var displayCount = comment.likesCount;
+
+    if (base != null &&
+        comment.isLiked == base.baseLiked &&
+        comment.likesCount == base.baseCount) {
+      final delta = (desiredLiked ? 1 : 0) - (base.baseLiked ? 1 : 0);
+      displayCount = (comment.likesCount + delta).clamp(0, 9999999);
+    }
+
+    return comment.copyWith(
+      isLiked: desiredLiked,
+      likesCount: displayCount,
+      replies: mappedReplies,
+    );
+  }
+
+  void _handleToggleLike(ReelComment target) {
+    final effective = _effectiveComment(target);
+    HapticFeedback.lightImpact();
+    setState(() {
+      _likeBaseline.putIfAbsent(
+        target.id,
+        () => (baseLiked: target.isLiked, baseCount: target.likesCount),
+      );
+      _localLiked[target.id] = !effective.isLiked;
+    });
+    widget.onToggleLike(effective);
+  }
 
   @override
   void initState() {
@@ -448,13 +495,14 @@ class _ReelCommentsSheetState extends State<ReelCommentsSheet> {
                             );
                           }
 
-                          final comment = widget.comments[index];
+                          final rawComment = widget.comments[index];
+                          final comment = _effectiveComment(rawComment);
                           return _CommentRow(
                             comment: comment,
-                            onToggleLike: () => widget.onToggleLike(comment),
-                            onDelete: () => widget.onDelete(comment),
+                            onToggleLike: _handleToggleLike,
+                            onDelete: () => widget.onDelete(rawComment),
                             onReply: () {
-                              setState(() => _replyingTo = comment);
+                              setState(() => _replyingTo = rawComment);
                               _focus.requestFocus();
                             },
                             canDelete:
@@ -629,15 +677,28 @@ class _Composer extends StatelessWidget {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 140),
               curve: Curves.easeOut,
-              constraints: const BoxConstraints(minHeight: 44),
-              padding: const EdgeInsets.fromLTRB(16, 2, 8, 2),
+              constraints: const BoxConstraints(minHeight: 46),
+              padding: const EdgeInsets.fromLTRB(18, 2, 8, 2),
               decoration: BoxDecoration(
-                color: focusNode.hasFocus ? t.surface : t.surfaceAlt,
-                borderRadius: BorderRadius.circular(24),
+                color: focusNode.hasFocus
+                    ? t.surface
+                    : (t.isDark
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : const Color(0xFFF3F4F6)),
+                borderRadius: BorderRadius.circular(28),
                 border: Border.all(
                   color: focusNode.hasFocus ? _kCommentBlue : t.border,
-                  width: focusNode.hasFocus ? 1.6 : 1.0,
+                  width: focusNode.hasFocus ? 1.5 : 1.0,
                 ),
+                boxShadow: focusNode.hasFocus
+                    ? [
+                        BoxShadow(
+                          color: _kCommentBlue.withValues(alpha: 0.14),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : null,
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
@@ -938,7 +999,7 @@ class _CommentRow extends StatelessWidget {
   });
 
   final ReelComment comment;
-  final VoidCallback onToggleLike;
+  final ValueChanged<ReelComment> onToggleLike;
   final VoidCallback onDelete;
   final VoidCallback onReply;
 
@@ -1026,7 +1087,7 @@ class _CommentRow extends StatelessWidget {
               _CommentLine(
                 comment: entry,
                 isReply: entry != comment,
-                onToggleLike: onToggleLike,
+                onToggleLike: () => onToggleLike(entry),
                 onDelete: onDelete,
                 onReply: onReply,
                 canDelete: canDelete,
@@ -1225,25 +1286,35 @@ class _CommentLine extends StatelessWidget {
               button: true,
               label: 'Like the comment',
               child: SizedBox(
-                width: 32,
+                width: 36,
                 child: Column(
                   children: [
-                    IonIcon(
-                      comment.isLiked
-                          ? IonIcons.heartFilled
-                          : IonIcons.heartOutline,
-                      size: 18,
-                      color: comment.isLiked
-                          ? _kCommentBlue
-                          : t.textTertiary,
+                    AnimatedScale(
+                      scale: comment.isLiked ? 1.12 : 1.0,
+                      duration: const Duration(milliseconds: 160),
+                      curve: Curves.easeOutBack,
+                      child: IonIcon(
+                        comment.isLiked
+                            ? IonIcons.heartFilled
+                            : IonIcons.heartOutline,
+                        size: 19,
+                        color: comment.isLiked
+                            ? _kCommentBlue
+                            : t.textTertiary,
+                      ),
                     ),
                     if (comment.likesCount > 0) ...[
                       const SizedBox(height: 3),
                       Text(
                         formatCount(comment.likesCount),
                         style: EnnvoText.tiny.copyWith(
-                          color: t.textTertiary,
+                          color: comment.isLiked
+                              ? _kCommentBlue
+                              : t.textTertiary,
                           fontSize: 11,
+                          fontWeight: comment.isLiked
+                              ? FontWeight.w700
+                              : FontWeight.w500,
                         ),
                       ),
                     ],

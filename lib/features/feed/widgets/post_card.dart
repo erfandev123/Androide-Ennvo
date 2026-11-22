@@ -198,8 +198,12 @@ class _PostCardState extends State<PostCard> {
                 behavior: HitTestBehavior.opaque,
                 onTap: _handleDoubleTap,
                 child: Stack(
+                  fit: StackFit.passthrough,
                   children: [
-                    _MediaGrid(post: post),
+                    SizedBox(
+                      width: double.infinity,
+                      child: _MediaGrid(post: post),
+                    ),
                     if (_showHeart)
                       Positioned.fill(
                         child: IgnorePointer(
@@ -291,11 +295,10 @@ class _PostCardState extends State<PostCard> {
               ),
             ),
 
-          // --- action row (Like, Comment, Favorite, Repost, Share) ------
+          // --- action row: Like, Comment, Favorite on left; Share on right --
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _ActionButton(
                   icon: IonIcon(
@@ -311,6 +314,7 @@ class _PostCardState extends State<PostCard> {
                   onTap: widget.onToggleLike,
                   semanticLabel: 'Like',
                 ),
+                const SizedBox(width: 18),
                 _ActionButton(
                   icon: IonIcon(
                     IonIcons.chatOutline,
@@ -321,6 +325,7 @@ class _PostCardState extends State<PostCard> {
                   onTap: widget.onComment,
                   semanticLabel: 'Comment',
                 ),
+                const SizedBox(width: 18),
                 _ActionButton(
                   icon: IonIcon(
                     widget.isSaved
@@ -335,6 +340,7 @@ class _PostCardState extends State<PostCard> {
                   onTap: widget.onToggleSave,
                   semanticLabel: 'Save',
                 ),
+                const SizedBox(width: 16),
                 _ActionButton(
                   icon: IonIcon(
                     IonIcons.repeatOutline,
@@ -347,6 +353,7 @@ class _PostCardState extends State<PostCard> {
                   onTap: widget.onToggleRepost,
                   semanticLabel: 'Repost',
                 ),
+                const Spacer(),
                 _ActionButton(
                   icon: IonIcon(IonIcons.share, size: 21, color: t.textPrimary),
                   onTap: widget.onShare,
@@ -451,8 +458,12 @@ class _PostCardState extends State<PostCard> {
               ),
             ),
 
-          const SizedBox(height: 4),
-          Divider(height: 1, thickness: 1, color: t.border),
+          const SizedBox(height: 6),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: t.border.withValues(alpha: 0.55),
+          ),
         ],
       ),
     );
@@ -491,30 +502,37 @@ class _MediaGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = context.tokens;
     final media = post.media;
+    final height = MediaQuery.sizeOf(context).width < 640 ? 380.0 : 440.0;
 
     if (media.length == 1) {
-      final height = MediaQuery.sizeOf(context).width < 640 ? 360.0 : 420.0;
       final videoUrl = post.videoUrl;
 
-      return SizedBox(
+      return Container(
+        width: double.infinity,
         height: height,
-        child: ClipRRect(
+        decoration: BoxDecoration(
+          color: t.surfaceAlt,
           borderRadius: BorderRadius.circular(_mediaRadius),
-          child: videoUrl == null
-              ? _MediaImage(
-                  url: media.first,
-                  thumbnailUrl: post.thumbnailUrl,
-                )
-              : _PostVideo(url: videoUrl, post: post),
+          border: Border.all(
+            color: t.border.withValues(alpha: 0.45),
+            width: 0.8,
+          ),
         ),
+        clipBehavior: Clip.antiAlias,
+        child: videoUrl == null
+            ? _MediaImage(
+                url: media.first,
+                thumbnailUrl: post.thumbnailUrl,
+              )
+            : _PostVideo(url: videoUrl, post: post),
       );
     }
 
-    final height = MediaQuery.sizeOf(context).width < 640 ? 360.0 : 420.0;
-
     if (media.length == 2) {
       return SizedBox(
+        width: double.infinity,
         height: height,
         child: Row(
           children: [
@@ -549,6 +567,7 @@ class _MediaGrid extends StatelessWidget {
 
     if (media.length == 3) {
       return SizedBox(
+        width: double.infinity,
         height: height,
         child: Row(
           children: [
@@ -602,38 +621,44 @@ class _MediaGrid extends StatelessWidget {
     }
 
     // 4 or more — the first photo with a "+N" overlay.
-    return AspectRatio(
-      aspectRatio: 4 / 3,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(_mediaRadius),
-            child: _MediaImage(
-              url: media.first,
-              thumbnailUrl: post.thumbnailUrl,
-            ),
-          ),
-          Positioned(
-            right: 12,
-            bottom: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(AppRadius.pill),
+    return SizedBox(
+      width: double.infinity,
+      child: AspectRatio(
+        aspectRatio: 4 / 3,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(_mediaRadius),
+              child: _MediaImage(
+                url: media.first,
+                thumbnailUrl: post.thumbnailUrl,
               ),
-              child: Text(
-                '+${media.length - 2}',
-                style: EnnvoText.titleSm.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 20,
+            ),
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+                child: Text(
+                  '+${media.length - 2}',
+                  style: EnnvoText.titleSm.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 20,
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -647,24 +672,30 @@ class _MediaImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      // Decode at roughly the display size — a full resolution photo in a
-      // scrolling list is the fastest way to run out of memory.
-      cacheWidth: 1080,
-      errorBuilder: (_, __, ___) {
-        if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) {
-          return Image.network(
-            thumbnailUrl!,
-            fit: BoxFit.cover,
-            cacheWidth: 1080,
-            errorBuilder: (_, __, ___) =>
-                const ColoredBox(color: Color(0xFF1F2937)),
-          );
-        }
-        return const ColoredBox(color: Color(0xFF1F2937));
-      },
+    return SizedBox.expand(
+      child: Image.network(
+        url,
+        width: double.infinity,
+        height: double.infinity,
+        fit: BoxFit.cover,
+        // Decode at roughly the display size — a full resolution photo in a
+        // scrolling list is the fastest way to run out of memory.
+        cacheWidth: 1080,
+        errorBuilder: (_, __, ___) {
+          if (thumbnailUrl != null && thumbnailUrl!.isNotEmpty) {
+            return Image.network(
+              thumbnailUrl!,
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.cover,
+              cacheWidth: 1080,
+              errorBuilder: (_, __, ___) =>
+                  const ColoredBox(color: Color(0xFF1F2937)),
+            );
+          }
+          return const ColoredBox(color: Color(0xFF1F2937));
+        },
+      ),
     );
   }
 }

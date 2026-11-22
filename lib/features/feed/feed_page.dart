@@ -827,9 +827,13 @@ class _ComposerCard extends StatelessWidget {
       color: t.background,
       child: Column(
         children: [
-          Divider(height: 1, thickness: 1, color: t.border),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: t.border.withValues(alpha: 0.45),
+          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Row(
               children: [
                 _FeedAvatar(url: avatar, name: name, size: 40),
@@ -839,12 +843,16 @@ class _ComposerCard extends StatelessWidget {
                     behavior: HitTestBehavior.opaque,
                     onTap: onTap,
                     child: Container(
-                      height: 42,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
                       decoration: BoxDecoration(
-                        color: t.surfaceAlt,
-                        borderRadius: BorderRadius.circular(21),
-                        border: Border.all(color: t.border),
+                        color: t.isDark
+                            ? Colors.white.withValues(alpha: 0.05)
+                            : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: t.border.withValues(alpha: 0.55),
+                        ),
                       ),
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -852,7 +860,7 @@ class _ComposerCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: EnnvoText.body.copyWith(
-                          color: t.textSecondary,
+                          color: t.textSecondary.withValues(alpha: 0.85),
                           fontSize: 14,
                         ),
                       ),
@@ -863,7 +871,7 @@ class _ComposerCard extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
             child: Row(
               children: [
                 _ComposerAction(
@@ -872,12 +880,14 @@ class _ComposerCard extends StatelessWidget {
                   color: const Color(0xFF22C55E),
                   onTap: onPhoto,
                 ),
+                const SizedBox(width: 8),
                 _ComposerAction(
                   icon: LucideIcons.video,
                   label: 'Video',
                   color: const Color(0xFFEF4444),
                   onTap: onVideo,
                 ),
+                const SizedBox(width: 8),
                 _ComposerAction(
                   icon: LucideIcons.film,
                   label: 'Reel',
@@ -887,7 +897,11 @@ class _ComposerCard extends StatelessWidget {
               ],
             ),
           ),
-          Divider(height: 1, thickness: 1, color: t.border),
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: t.border.withValues(alpha: 0.45),
+          ),
         ],
       ),
     );
@@ -915,18 +929,25 @@ class _ComposerAction extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 9),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: t.isDark
+                ? Colors.white.withValues(alpha: 0.04)
+                : color.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(18),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              LucideIcon(icon, size: 18, strokeWidth: 2.2, color: color),
-              const SizedBox(width: 7),
+              LucideIcon(icon, size: 17, strokeWidth: 2.1, color: color),
+              const SizedBox(width: 6),
               Text(
                 label,
                 style: EnnvoText.bodySemi.copyWith(
                   color: t.textSecondary,
-                  fontSize: 13,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],

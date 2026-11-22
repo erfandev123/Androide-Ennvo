@@ -23,7 +23,11 @@ import 'package:ennvo/data/services/story_service.dart';
 import 'package:ennvo/features/feed/widgets/post_card.dart';
 import 'package:ennvo/features/messages/messages_page.dart';
 import 'package:ennvo/features/notifications/notifications_page.dart';
+import 'package:ennvo/features/profile/profile_page.dart';
+import 'package:ennvo/features/reels/models/reel_comment.dart';
+import 'package:ennvo/features/reels/widgets/comments_sheet.dart';
 import 'package:ennvo/features/reels/widgets/reel_card.dart';
+import 'package:ennvo/shared/icons/ion_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -282,9 +286,131 @@ void main() {
     expect(find.text('Dhaka, Bangladesh'), findsOneWidget);
     expect(find.textContaining('with Tania, Arif'), findsOneWidget);
     expect(find.byTooltip('Save'), findsOneWidget);
+
+    // Like, Comment, Save sit on the left side while Share sits on the right side
+    final likeX = tester.getCenter(find.byTooltip('Like')).dx;
+    final commentX = tester.getCenter(find.byTooltip('Comment')).dx;
+    final saveX = tester.getCenter(find.byTooltip('Save')).dx;
+    final shareX = tester.getCenter(find.byTooltip('Share')).dx;
+    expect(likeX, lessThan(commentX));
+    expect(commentX, lessThan(saveX));
+    expect(saveX, lessThan(shareX));
+    expect(shareX - saveX, greaterThan(60));
+
     await tester.tap(find.byTooltip('Save'));
     await tester.pump();
     expect(savedTapped, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ReelCommentsSheet turns liked comment heart and count blue', (
+    tester,
+  ) async {
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final comment = ReelComment(
+      id: 'c-blue-1',
+      authorId: 'u-2',
+      authorName: 'Tania Akter',
+      authorAvatar: '',
+      kind: CommentKind.text,
+      text: 'Khub sundor hoyeche!',
+      createdAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      likesCount: 4,
+      isLiked: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: EnnvoTheme.light(),
+        home: Scaffold(
+          body: ReelCommentsSheet(
+            comments: [comment],
+            onSubmit: (_, __) async {},
+            onToggleLike: (_) {},
+            onDelete: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.bySemanticsLabel('Like the comment'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('5'), findsOneWidget);
+    final countWidget = tester.widget<Text>(find.text('5'));
+    expect(countWidget.style?.color, const Color(0xFF0095F6));
+
+    final heartWidget = tester.widget<IonIcon>(
+      find.descendant(
+        of: find.bySemanticsLabel('Like the comment'),
+        matching: find.byType(IonIcon),
+      ),
+    );
+    expect(heartWidget.color, const Color(0xFF0095F6));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ProfilePage renders TikTok-style vertical reel boxes in Reels tab',
+      (tester) async {
+    final prefs = await _buildPrefs(dark: false);
+    final reelPost = AppPost.fromMap({
+      'id': 'reel-profile-1',
+      'authorId': 'me',
+      'authorName': 'Erfan',
+      'text': 'Sunset reel',
+      'type': 'reel',
+      'media': ['https://cdn.ennvo.app/reels/sunset.mp4'],
+      'likesCount': 1200,
+      'viewsCount': 8500,
+    }, fallbackId: 'reel-profile-1');
+
+    final container = ProviderContainer(
+      overrides: [
+        prefsProvider.overrideWith((ref) => prefs),
+        deviceProfileProvider.overrideWithValue(
+          profileForTesting(ramBytes: 4 * 1024 * 1024 * 1024, cores: 4),
+        ),
+        userPostsProvider.overrideWith((ref) => Stream.value([reelPost])),
+        savedPostsProvider.overrideWith((ref) => Stream.value(const [])),
+      ],
+    );
+
+    tester.view.physicalSize = _phone;
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: EnnvoTheme.light(),
+          home: const ProfilePage(),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Reels'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('8.5K'), findsOneWidget);
+    final gridItemSize = tester.getSize(
+      find.ancestor(
+        of: find.text('8.5K'),
+        matching: find.byType(GestureDetector),
+      ).first,
+    );
+    expect(
+      gridItemSize.height,
+      greaterThan(gridItemSize.width * 1.3),
+      reason: 'TikTok-style reel boxes must be tall vertical cards',
+    );
     expect(tester.takeException(), isNull);
   });
 
